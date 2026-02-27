@@ -71,85 +71,58 @@
 
 ## Phase 1 — Language Mechanics
 
-> Standalone "concept exploration" tests. The library project starts in 1.2.
+> Builds on Phase 0. You already wrote interfaces, records, classes with `final` fields,
+> constructors, `List`, `Map`, lambdas, and basic streams. Each section here focuses on
+> what you haven't seen yet, and exercises extend the existing library code.
 
-### 1.1 Type System & Primitives
-- **Tests:** demonstrate and assert `int` vs `Integer` autoboxing, `==` vs `.equals()` traps, `null` behavior
-- Primitives vs boxed types — `int`, `long`, `double`, `boolean` vs `Integer`, `Long`, `Double`, `Boolean`
-- Autoboxing/unboxing pitfalls: `Integer a = 127; Integer b = 127; a == b` → true. `Integer a = 128; Integer b = 128; a == b` → false. Why?
-- `String` is immutable and interned; `==` vs `.equals()` (the #1 Java trap)
-- Type inference with `var` — local variables only, no `let`/`const` at class level
-- No union types, no `undefined` — `null` is the only absence value
-- **Watch out:** coming from TS, you'll instinctively use `==`. In Java, always `.equals()` for objects.
+### 1.1 Equality, Identity & the Type System
+- `==` vs `.equals()` — the #1 Java trap (== compares references for objects)
+- Primitives vs boxed types, autoboxing, the `Integer` cache (127 vs 128)
+- `.equals()` and `.hashCode()` contract — why records gave you equality for free
+- `null` semantics: no `undefined`, `null` unboxing crashes
+- **Domain exercise:** introduce `BookId` / `MemberId` value records, refactor the repository
 
-### 1.2 Strings & Text
-- **Tests:** string manipulation, formatting, comparison
-- `String` methods: `.substring()`, `.contains()`, `.split()`, `.strip()`, `.startsWith()`
-- Text blocks (`"""`) — multi-line strings (≈ JS template literals, but no interpolation)
-- `String.format()` and `.formatted()` — `"Hello %s, you are %d".formatted(name, age)`
-- `StringBuilder` — when and why (loop concatenation)
-- `String` comparison: `.equals()`, `.equalsIgnoreCase()`, `.compareTo()`
-- **Watch out:** no string interpolation like TS `${var}`. Use `.formatted()` or `+` concatenation.
+### 1.2 Strings, Text & Formatting
+- String immutability, key methods, `.equals()` reinforcement
+- Text blocks (`"""`), `String.format()` / `.formatted()`, `StringBuilder`
+- **Domain exercise:** `Book` record with title validation, loan receipt formatter
 
-### 1.3 Classes & OOP (what's different from TS/C#)
-- **Tests:** build the library domain model — `Book`, `Member`, `Loan` — assert behavior
-- Everything lives in a class — no top-level functions (until recent `void main()`)
-- One public class per file (filename must match class name)
-- Access modifiers: `public`, `private`, `protected`, **package-private** (default — no keyword, and it's a deliberate design tool)
-- `final` keyword — on fields (≈ `readonly`), on methods (can't override), on classes (can't extend)
-- No structural typing — Java is 100% nominal. Two identical classes are NOT interchangeable.
-- Constructors, `this`, method overloading (no default parameter values like TS)
-- `static` — class-level methods and fields, static factory methods
-- `@Override` annotation — why you should always use it
-- **Watch out:** no object literals `{ title: "..." }`. You must define a class or record for everything.
+### 1.3 Classes: What Phase 0 Skipped
+- Access modifiers in depth (especially package-private as a design tool)
+- `final` on methods/classes, method overloading, `static` members, `@Override`
+- Nominal typing — structurally identical classes are NOT interchangeable
+- **Domain exercise:** `Book` class with static factory methods, overloaded methods
 
-### 1.4 Interfaces & Abstract Classes
-- **Tests:** define `BookRepository` interface, implement `InMemoryBookRepository`, test through the interface
-- Interfaces — pure contracts (≈ TS interfaces, but enforced at runtime)
-- `default` methods on interfaces — implementation in interfaces (≈ mixin-ish)
-- Abstract classes — partial implementation + contract
-- When to use which: prefer interfaces; use abstract classes when you need shared state/constructor logic
-- Multiple interface implementation (Java's answer to no multiple inheritance)
-- **This is where Detroit-school TDD shines:** you define the interface in the test, implement a fake, then build the real implementation later.
+### 1.4 Interfaces & Abstract Classes: Beyond Basics
+- `default` methods, `static` methods on interfaces
+- Abstract classes — when and why (shared state/constructor logic)
+- `protected` access, multiple interface implementation
+- **Domain exercise:** `Searchable` interface with default method, abstract repository base class
 
-### 1.5 Enums (they're full classes)
-- **Tests:** model `LoanStatus` (ACTIVE, OVERDUE, RETURNED), `BookGenre` with behavior
-- Enums can have fields, constructors, and methods
-- Enum with abstract methods — each constant provides its own implementation
-- `EnumSet`, `EnumMap` — specialized collections for enums
-- **Watch out:** Java enums are nothing like TS enums. They're closer to a sealed class with singleton instances.
+### 1.5 Enums & Records in Depth
+- Enums as full classes: fields, constructors, methods, per-constant behavior
+- `EnumSet`, `EnumMap`, enums in `switch`
+- Record compact constructors, custom methods on records
+- **Domain exercise:** `LoanStatus` state machine, `BookGenre` with fields
 
-### 1.6 Records & Sealed Types (modern Java)
-- **Tests:** convert `Book` to a record, assert auto-generated equality/accessors; model domain events as sealed hierarchy
-- `record` — immutable data carriers with auto-generated `equals()`, `hashCode()`, `toString()`, accessors
-- Compact constructors for validation
-- Sealed classes/interfaces — `sealed interface DomainEvent permits BookAdded, BookBorrowed, BookReturned`
-- Pattern matching in `instanceof` and `switch`
-- Destructuring records in patterns
-- **Watch out:** records are final and immutable. No setters, no inheritance. Think "value objects."
+### 1.6 Sealed Types & Pattern Matching
+- `sealed` interfaces with `permits`, exhaustive `switch`
+- Pattern matching in `instanceof` and `switch`, record destructuring
+- **Domain exercise:** `LibraryEvent` sealed hierarchy with pattern-matching event processor
 
-### 1.7 Generics (the practical parts)
-- **Tests:** write a generic `Result<T>` type (≈ TS `Result<T, E>`), test with different types
-- Generic classes, interfaces, methods
-- Type erasure — generics exist at compile-time only. No `new T()`, no `instanceof T`.
+### 1.7 Generics: Writing Your Own
+- Writing generic classes/interfaces/methods, type erasure
 - Bounded types: `<T extends Comparable<T>>`
-- Why you can't do `List<int>` — primitives aren't objects (until Valhalla)
-- **Deferred to Phase 7:** Wildcards (`<? extends Foo>`, `<? super Foo>`) and PECS — you rarely need these day-to-day.
+- **Domain exercise:** generic `Result<T>` type with `Success`/`Failure` states
 
-### 1.8 Null Safety & Optionals
-- **Tests:** `Optional` behavior — map, flatMap, orElse, orElseThrow, empty; use in repository `findById`
-- Java has no built-in null safety (no `?` operator like TS/C#)
-- `Optional<T>` — when to use it:
-  - YES: return types that might be absent (`findById` returns `Optional<Book>`)
-  - NO: fields, parameters, collections
-- `Optional` methods: `.map()`, `.flatMap()`, `.filter()`, `.orElse()`, `.orElseThrow()`
-- `@Nullable` / `@NonNull` annotations — tooling hints, not compiler-enforced
-- **Watch out:** don't use `Optional` like TS's `?:` on everything. It's for return types.
+### 1.8 Null Safety & Optional
+- No built-in null safety, `Optional<T>` conventions (return types only)
+- `.map()`, `.flatMap()`, `.orElse()`, `.orElseThrow()`
+- **Domain exercise:** `Optional`-returning repository methods, refactor `LendingService`
 
-### 1.9 Capstone — Library Domain Model
-- **Bring it together:** `Book` (record), `Member` (class), `Loan` (class), `BookRepository` (interface), `InMemoryBookRepository` (fake)
-- All tested, all working, no framework — pure Java + JUnit + AssertJ
-- Review: what's different from how you'd model this in TS?
+### 1.9 Capstone — Evolve the Library Domain
+- Not a rewrite — refactor Phase 0 code to use everything from 1.1–1.8
+- Value object IDs, enums, sealed events, `Result<T>`, `Optional`, enriched domain model
 
 ---
 
