@@ -12,21 +12,21 @@ public class LendingService {
         lendingLimit = config.lendingLimit();
     }
 
-    public void borrowBook(String member, String book) {
-        if (loanRepository.isBookOnLoan(book)) {
+    public void borrowBook(MemberId memberId, BookId bookId) {
+        if (loanRepository.isBookOnLoan(bookId)) {
             throw new IllegalStateException("Book is already on loan");
         }
-        if (loansFor(member).size() >= lendingLimit) {
+        if (loansFor(memberId).size() >= lendingLimit) {
             throw new IllegalStateException("Member has reached borrowing limit");
         }
-        loanRepository.save(member, book);
+        loanRepository.save(memberId, bookId);
     }
 
-    public List<String> loansFor(String member) {
-        return loanRepository.findBooksByMember(member);
+    public List<BookId> loansFor(MemberId memberId) {
+        return loanRepository.findBooksByMember(memberId);
     }
 
-    public void returnBook(String member, String book) {
-        loanRepository.delete(member, book);
+    public void returnBook(MemberId memberId, BookId bookId) {
+        loanRepository.delete(memberId, bookId);
     }
 }

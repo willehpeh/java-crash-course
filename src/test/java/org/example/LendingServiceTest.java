@@ -12,45 +12,51 @@ public class LendingServiceTest {
 
     @Test
     void shouldBorrowBook() {
-        service.borrowBook("member1", "book1");
+        var memberId = new MemberId("member1");
+        service.borrowBook(memberId, new BookId("book1"));
 
-        assertThat(loanRepository.findBooksByMember("member1")).containsExactly("book1");
+        assertThat(loanRepository.findBooksByMember(memberId)).containsExactly(new BookId("book1"));
     }
 
     @Test
     void shouldGetLoansForMember() {
-        loanRepository.save("member1", "book1");
-        loanRepository.save("member1", "book2");
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        var bookId2 = new BookId("book2");
+        loanRepository.save(memberId, bookId);
+        loanRepository.save(memberId, bookId2);
 
-        assertThat(service.loansFor("member1")).containsExactly("book1", "book2");
+        assertThat(service.loansFor(new MemberId("member1"))).containsExactly(bookId, bookId2);
     }
 
     @Test
     void shouldReturnBook() {
-        service.borrowBook("member1", "book1");
-        service.returnBook("member1", "book1");
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        service.borrowBook(memberId, bookId);
+        service.returnBook(memberId, bookId);
 
-        assertThat(loanRepository.findBooksByMember("member1")).isEmpty();
+        assertThat(loanRepository.findBooksByMember(memberId)).isEmpty();
     }
 
     @Test
     void shouldNotBorrowBookAlreadyOnLoan() {
-        service.borrowBook("member1", "book1");
+        service.borrowBook(new MemberId("member1"), new BookId("book1"));
 
-        assertThatThrownBy(() -> service.borrowBook("member2", "book1"));
+        assertThatThrownBy(() -> service.borrowBook(new MemberId("member2"), new BookId("book1")));
     }
 
     @Test
     void shouldNotReturnBookNotOnLoan() {
-        assertThatThrownBy(() -> service.returnBook("member1", "book1"));
+        assertThatThrownBy(() -> service.returnBook(new MemberId("member1"), new BookId("book1")));
     }
 
     @Test
     void shouldEnforceBorrowingLimit() {
-        service.borrowBook("member1", "book1");
-        service.borrowBook("member1", "book2");
-        service.borrowBook("member1", "book3");
+        service.borrowBook(new MemberId("member1"), new BookId("book1"));
+        service.borrowBook(new MemberId("member1"), new BookId("book2"));
+        service.borrowBook(new MemberId("member1"), new BookId("book3"));
 
-        assertThatThrownBy(() -> service.borrowBook("member1", "book4"));
+        assertThatThrownBy(() -> service.borrowBook(new MemberId("member1"), new BookId("book4")));
     }
 }

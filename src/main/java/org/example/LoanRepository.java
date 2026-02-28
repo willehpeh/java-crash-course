@@ -3,11 +3,11 @@ package org.example;
 import java.util.List;
 
 public interface LoanRepository {
-    void save(String memberId, String bookId);
+    void save(MemberId memberId, BookId bookId);
 
-    void delete(String memberId, String bookId);
+    void delete(MemberId memberId, BookId bookId);
 
-    List<String> findBooksByMember(String memberId);
+    List<BookId> findBooksByMember(MemberId memberId);
 
-    boolean isBookOnLoan(String bookId);
+    boolean isBookOnLoan(BookId bookId);
 }

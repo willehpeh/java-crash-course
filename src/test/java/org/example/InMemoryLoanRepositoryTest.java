@@ -9,33 +9,41 @@ public class InMemoryLoanRepositoryTest {
 
     @Test
     void shouldRecordALoan() {
-        repository.save("member1", "book1");
-        assertThat(repository.findBooksByMember("member1")).containsExactly("book1");
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        repository.save(memberId, bookId);
+        assertThat(repository.findBooksByMember(memberId)).containsExactly(bookId);
     }
 
     @Test
     void shouldReturnEmptyListForMemberWithNoLoans() {
-        assertThat(repository.findBooksByMember("empty-member")).isEmpty();
+        assertThat(repository.findBooksByMember(new MemberId("empty-member"))).isEmpty();
     }
 
     @Test
     void shouldTrackMultipleLoansPerMember() {
-        repository.save("member1", "book1");
-        repository.save("member1", "book2");
-        assertThat(repository.findBooksByMember("member1")).containsExactlyInAnyOrder("book1", "book2");
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        var bookId2 = new BookId("book2");
+        repository.save(memberId, bookId);
+        repository.save(memberId, bookId2);
+        assertThat(repository.findBooksByMember(memberId)).containsExactlyInAnyOrder(bookId, bookId2);
     }
 
     @Test
     void shouldKnowWhenBookIsOnLoan() {
-        repository.save("member1", "book1");
-        assertThat(repository.isBookOnLoan("book1")).isTrue();
+        var bookId = new BookId("book1");
+        repository.save(new MemberId("member1"), bookId);
+        assertThat(repository.isBookOnLoan(bookId)).isTrue();
     }
 
     @Test
     void shouldRemoveLoanOnDelete() {
-        repository.save("member1", "book1");
-        repository.delete("member1", "book1");
-        assertThat(repository.findBooksByMember("member1")).isEmpty();
-        assertThat(repository.isBookOnLoan("book1")).isFalse();
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        repository.save(memberId, bookId);
+        repository.delete(memberId, bookId);
+        assertThat(repository.findBooksByMember(memberId)).isEmpty();
+        assertThat(repository.isBookOnLoan(bookId)).isFalse();
     }
 }
