@@ -19,12 +19,13 @@ public class LoanReceipt {
         if (receiptText != null) {
             return receiptText;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append("Loan Receipt\n");
-        sb.append("Member ID: ").append(memberId.value()).append("\n");
-        sb.append("Books on loan: ").append(bookIds.size()).append("\n");
-        sb.append(bookIdListAsText());
-        receiptText = sb.toString();
+        receiptText = """
+                Loan Receipt
+                Member ID: %s
+                Books on loan: %s
+                %s
+                """
+                .formatted(memberId.value(), bookIds.size(), bookIdListAsText());
         return receiptText;
     }
 
