@@ -82,17 +82,20 @@ Create `src/test/java/org/example/EqualityTest.java`. Write tests that demonstra
 Raw `String` IDs are error-prone — nothing stops you from passing a memberId where a
 bookId is expected. Typed value objects prevent this at compile time.
 
-1. Create a `BookId` record in `src/main/java/org/example/` with a single `String value` field.
-2. Create a `MemberId` record the same way.
-3. Write tests for each that verify:
-   - Two instances with the same value are `.equals()`
-   - Two instances with different values are not
-   - `.toString()` includes the value (records generate this for free)
-4. Add compact constructor validation: the value must not be null or blank. Test this.
-5. **Refactor `LoanRepository`** to use `BookId` and `MemberId` instead of raw `String`.
-   Update `InMemoryLoanRepository`, `LendingService`, and all tests.
-   This is a significant refactor — let the compiler guide you. Fix one compilation
-   error at a time.
+Create `BookIdTest.java`. Test-drive a `BookId` record (`src/main/java/org/example/`,
+single `String value` field) with these behaviours:
+
+- Two instances with the same value are `.equals()`
+- Two instances with different values are not
+- `.toString()` includes the value
+- Blank value is rejected
+- Null value is rejected
+
+Repeat for `MemberId` — same pattern, fewer tests needed.
+
+Then **refactor `LoanRepository`** to use `BookId` and `MemberId` instead of raw `String`.
+Update `InMemoryLoanRepository`, `LendingService`, and all tests. Let the compiler guide
+you. All existing tests should still pass.
 
 **Hint:** A compact constructor on a record looks like:
 ```java
@@ -160,16 +163,19 @@ Create `StringTest.java`. Write tests that explore:
 
 ### Exercise 1.2b — Book record with validation
 
-Create a `Book` record with fields: `BookId id`, `String title`, `String author`.
+Create `BookTest.java`. Test-drive a `Book` record with fields `BookId id`, `String title`,
+`String author` and these validation behaviours:
 
-Add a compact constructor that validates:
-- `title` must not be null or blank
-- `author` must not be null or blank
-- `title` must not exceed 200 characters
+- Blank title is rejected
+- Null title is rejected
+- Title of exactly 200 characters is accepted
+- Title of 201 characters is rejected
+- Blank author is rejected
+- Null author is rejected
 
-Write tests for each validation rule and for successful construction.
+Use `@Nested` classes to group title tests and author tests (like Jest `describe` blocks).
 
-**Hint:** `String.isBlank()` returns true for null-ish whitespace strings but throws
+**Hint:** `String.isBlank()` returns true for whitespace-only strings but throws
 on actual `null`. Check for `null` separately, or use: `title == null || title.isBlank()`.
 
 ### Crash Course Aside: Objects Own Their Behaviour
@@ -187,15 +193,17 @@ behaviour that operates on it live together.
 
 ### Exercise 1.2c — Loan receipt object
 
-Create a `LoanReceipt` class that encapsulates a member's loans and knows how to represent
-itself. The receipt IS the object — not data acted on by a separate formatter.
+The receipt IS the object — not data acted on by a separate formatter.
 
-The constructor takes a `MemberId` and a `List<BookId>` (must contain at least one book —
-a receipt with no books makes no sense).
+Create `LoanReceiptTest.java`. Test-drive a `LoanReceipt` class (constructor takes
+`MemberId` and `List<BookId>`, method `String asText()`) with these behaviours:
 
-Add a method `String asText()` that returns a formatted receipt.
+- Displays the member ID in its text output
+- Displays the total book count (e.g. "Books on loan: 2")
+- Lists each book ID
+- Rejects an empty book list
 
-Example output:
+Example output for a complete receipt:
 ```
 Loan Receipt
 Member: M-001
@@ -204,11 +212,6 @@ Books on loan: 3
 - B-002
 - B-003
 ```
-
-Write tests for:
-- A receipt with a single book
-- A receipt with multiple books
-- Construction with an empty list is rejected
 
 **Hint:** `String.join()` can join a list with a delimiter. You'll need to convert the
 `BookId` list to strings first — you can use a loop or (if you want to peek ahead at
@@ -278,13 +281,12 @@ Create `AccessModifierTest.java`:
 
 ### Exercise 1.3b — Method overloading and static factory
 
-Extend your `Book` record (or convert it to a class if needed for this exercise):
+Test-drive these in `BookTest.java`:
 
-1. Add a static factory method `Book.of(String title, String author)` that auto-generates
-   a `BookId`.
-2. Add an overloaded `Book.of(BookId id, String title, String author)` for when you have
-   an existing ID.
-3. Write tests for both factory methods.
+- `Book.of("Effective Java", "Joshua Bloch")` creates a book with a non-null auto-generated ID
+- Two calls to `Book.of(...)` produce different IDs
+- `Book.of(someBookId, "Effective Java", "Joshua Bloch")` creates a book with the given ID
+  (overloaded factory method)
 
 **Hint:** For generating IDs, `java.util.UUID.randomUUID().toString()` gives you a
 unique string. Import `java.util.UUID`.
@@ -357,27 +359,27 @@ use it in abstract classes to expose methods to subclasses without making them p
 
 ### Exercise 1.4a — Default methods
 
-1. Create a `Searchable` interface with:
-   - An abstract method `String getSearchableText()`
-   - A `default` method `boolean matches(String query)` that does a case-insensitive
-     contains check on `getSearchableText()`
-2. Make `Book` implement `Searchable` — return `title + " " + author` as the searchable text.
-3. Write tests:
-   - A book matches a query that appears in its title
-   - A book matches a query that appears in its author
-   - Matching is case-insensitive
-   - A book does not match an unrelated query
+Create `SearchableTest.java`. Test-drive `matches(String query)` on `Book`:
+
+- A book matches a query that appears in its title
+- A book matches a query that appears in its author
+- Matching is case-insensitive
+- A book does not match an unrelated query
+
+Once green, **refactor:** extract the matching logic into a `Searchable` interface with
+a `default` method. The interface declares `String getSearchableText()` (abstract) and
+`default boolean matches(String query)` (does the case-insensitive search). `Book`
+implements `getSearchableText()`. All tests should still pass — this is the refactor step.
 
 ### Exercise 1.4b — Abstract class
 
-1. Create an abstract class `AuditedRepository` that:
-   - Has a `private int saveCount` field
-   - Has a `protected` method `recordSave()` that increments the counter
-   - Has a `public` method `getSaveCount()` that returns the counter
-2. Make `InMemoryLoanRepository` extend `AuditedRepository`. Call `recordSave()`
-   inside its `save()` method.
-3. Write a test that saves several loans and verifies `getSaveCount()` returns the
-   correct number.
+Test-drive in `InMemoryLoanRepositoryTest.java`:
+
+- Save three loans, then assert `getSaveCount()` returns 3
+
+To make this work, create an abstract class `AuditedRepository` with a `private int saveCount`
+field, a `protected recordSave()` method, and a `public getSaveCount()` method. Make
+`InMemoryLoanRepository` extend it. All existing tests should still pass.
 
 **Note:** This introduces a design tension — `InMemoryLoanRepository` now both
 `implements LoanRepository` AND `extends AuditedRepository`. Java allows this.
@@ -386,10 +388,11 @@ it's worth noticing the tradeoff.)
 
 ### Exercise 1.4c — Multiple interfaces
 
-1. Create a `Displayable` interface with a `default` method `String display()` that
-   returns a human-readable representation.
-2. Make `Book` implement both `Searchable` and `Displayable`.
-3. Write a test that uses a `Book` through each interface.
+Test-drive a `Displayable` interface with a `String display()` method. Make `Book`
+implement both `Searchable` and `Displayable`:
+
+- `book.display()` returns a human-readable string containing the title and author
+- A single `Book` is accessible through both interface types
 
 ---
 
@@ -487,27 +490,36 @@ public record Book(BookId id, String title, String author) {
 
 ### Exercise 1.5a — LoanStatus state machine
 
-1. Create a `LoanStatus` enum with `ACTIVE`, `OVERDUE`, `RETURNED`.
-2. Add an abstract method `canTransitionTo(LoanStatus target)` with per-constant
-   implementations that enforce valid transitions:
-   - `ACTIVE` → `OVERDUE` or `RETURNED`
-   - `OVERDUE` → `RETURNED`
-   - `RETURNED` → nothing (terminal)
-3. Write parameterized tests for all valid transitions and all invalid transitions.
+Create `LoanStatusTest.java`. Test-drive a `LoanStatus` enum with `ACTIVE`, `OVERDUE`,
+`RETURNED` and a `canTransitionTo(LoanStatus target)` method. Valid transitions:
+
+- `ACTIVE` → `OVERDUE` or `RETURNED`
+- `OVERDUE` → `RETURNED`
+- `RETURNED` → nothing (terminal)
+
+Once the individual tests are green, refactor them into parameterized tests (`@CsvSource`
+works well here) covering all valid and invalid transitions.
+
+**Hint:** Make `canTransitionTo` an abstract method on the enum, with each constant
+providing its own implementation (see the Read First section above for the syntax).
 
 ### Exercise 1.5b — BookGenre with fields
 
-1. Create a `BookGenre` enum with at least 3 constants (e.g., `FICTION`, `NON_FICTION`,
-   `REFERENCE`), each with a `displayName` and `maxLoanDays`.
-2. Write tests that verify the fields.
-3. Use `EnumMap<BookGenre, Integer>` to count books per genre. Write a test.
+Create `BookGenreTest.java`. Test-drive a `BookGenre` enum with constants `FICTION`,
+`NON_FICTION`, `REFERENCE`, each with a `String displayName` and `int maxLoanDays`:
+
+- `FICTION.getDisplayName()` returns `"Fiction"`
+- `REFERENCE.getMaxLoanDays()` returns the expected value
+- An `EnumMap<BookGenre, Integer>` can count books per genre (`EnumMap` is a specialised,
+  high-performance `Map` for enum keys)
 
 ### Exercise 1.5c — Enrich the Book record
 
-If `Book` is still a record from 1.2, add:
-1. A `BookGenre genre` field.
-2. A custom method `isLongLoan()` that returns true if the genre's `maxLoanDays > 14`.
-3. Test both.
+Test-drive in `BookTest.java`. Add a `BookGenre genre` field to the `Book` record
+(fix all existing construction sites) and a `boolean isLongLoan()` method:
+
+- A `FICTION` book (with `maxLoanDays > 14`) returns true for `isLongLoan()`
+- A `REFERENCE` book (with `maxLoanDays <= 14`) returns false for `isLongLoan()`
 
 ---
 
@@ -566,22 +578,24 @@ case BookBorrowed b when b.memberId().equals(currentUser) -> "You borrowed: " + 
 
 ### Exercise 1.6a — Library event hierarchy
 
-1. Create a `sealed interface LibraryEvent` in `src/main/java/org/example/`.
-2. Create records that implement it:
-   - `BookAdded(BookId bookId, String title, String author)`
-   - `BookBorrowed(MemberId memberId, BookId bookId)`
-   - `BookReturned(MemberId memberId, BookId bookId)`
-3. Write tests that create each event type and assert their fields.
+Create `LibraryEventTest.java`. Test-drive a `sealed interface LibraryEvent` with these
+record types:
+
+- `BookAdded(BookId bookId, String title, String author)`
+- `BookBorrowed(MemberId memberId, BookId bookId)`
+- `BookReturned(MemberId memberId, BookId bookId)`
+
+Test each event type's fields.
 
 ### Exercise 1.6b — Pattern matching event processor
 
-1. Create an `EventProcessor` class with a method `String describe(LibraryEvent event)`
-   that uses a `switch` expression with pattern matching to return a different string
-   for each event type.
-2. Write tests for each event type.
-3. Add a new event type (e.g., `MemberRegistered(MemberId memberId, String name)`) to
-   the sealed interface. **Before implementing the new `switch` case**, try compiling.
-   See what the compiler tells you. Then add the case.
+Create `EventProcessorTest.java`. Test-drive an `EventProcessor` class with a
+`String describe(LibraryEvent event)` method using a `switch` expression with pattern
+matching. One test per event type — each should return a descriptive string.
+
+Once all cases pass, add a new event type `MemberRegistered(MemberId memberId, String name)`
+to the sealed interface's `permits` list. **Don't** add it to the `switch` yet — try
+compiling. See what the compiler tells you. Then add the case and a test.
 
 ### Exercise 1.6c — Pattern matching with instanceof
 
@@ -630,20 +644,14 @@ Consequences:
 
 ### Exercise 1.7a — Generic Result type
 
-This is similar to TS's `Result<T, E>`. Using sealed types from 1.6:
+This is similar to TS's `Result<T, E>`. Create `ResultTest.java`. Test-drive a
+`sealed interface Result<T>` with `record Success<T>(T value)` and
+`record Failure<T>(String message)`. Behaviours to drive:
 
-1. Create a `sealed interface Result<T> permits Success, Failure`.
-2. `Success<T>` is a record holding the value.
-3. `Failure<T>` is a record holding an error message (a `String` is fine).
-4. Add methods to `Result<T>`:
-   - `boolean isSuccess()`
-   - `T getOrElse(T defaultValue)` — returns the value if success, the default if failure
-   - `<U> Result<U> map(Function<T, U> mapper)` — transforms the value if success,
-     passes failure through. (You'll need `import java.util.function.Function;`)
-
-Write tests:
-- `Success` with a value: `isSuccess()` is true, `getOrElse` returns the value, `map` transforms it
-- `Failure` with a message: `isSuccess()` is false, `getOrElse` returns the default, `map` returns failure unchanged
+- `Success.isSuccess()` is true, `Failure.isSuccess()` is false
+- `Success.getOrElse(default)` returns the value; `Failure` returns the default
+- `Success.map(fn)` transforms the value; `Failure.map(fn)` passes the failure through
+  unchanged (`import java.util.function.Function;`)
 
 **Hints:**
 - You'll need to think about how `Success<T>` and `Failure<T>` provide the methods
@@ -663,10 +671,15 @@ Write tests that demonstrate type erasure:
 
 ### Exercise 1.7c — Bounded types
 
-1. Write a generic method `<T extends Comparable<T>> T max(T a, T b)` that returns the
-   larger of two values.
-2. Test it with `Integer`, `String`, and `LocalDate` (import `java.time.LocalDate`).
-3. Try calling it with a type that doesn't implement `Comparable`. See the compiler error.
+Create `BoundedTypeTest.java`. Test-drive a generic method
+`<T extends Comparable<T>> T max(T a, T b)` (put it in the test class as a `private static`
+helper):
+
+- `max(3, 7)` returns `7`
+- `max("apple", "banana")` returns `"banana"`
+- `max(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 12, 31))` returns the later date
+  (import `java.time.LocalDate`)
+- Try calling `max` with a type that doesn't implement `Comparable` — see the compiler error
 
 ---
 
@@ -724,20 +737,20 @@ Create `OptionalTest.java`:
 
 ### Exercise 1.8b — Optional in the repository
 
-1. Add a method `Optional<List<BookId>> findBooksByMember(MemberId memberId)` to... actually,
-   stop. An empty list is better here. This is a key design decision:
+Before you start — a design note:
 
-   **When to return `Optional` vs empty collection:**
-   - "Does this member have any books?" → return `List<BookId>` (empty list = no books)
-   - "Is this specific book on loan?" → return `Optional<MemberId>` (the borrower, or empty)
+**When to return `Optional` vs empty collection:**
+- "Does this member have any books?" → return `List<BookId>` (empty list = no books)
+- "Is this specific book on loan?" → return `Optional<MemberId>` (the borrower, or empty)
 
-   Add a new method to `LoanRepository`:
-   `Optional<MemberId> findBorrower(BookId bookId)` — returns who has this book, or empty.
+Test-drive `Optional<MemberId> findBorrower(BookId bookId)` on `LoanRepository` via
+contract tests in `InMemoryLoanRepositoryTest.java`:
 
-2. Implement it in `InMemoryLoanRepository`.
-3. Write contract tests: book on loan returns the borrower, book not on loan returns empty.
-4. Use it in `LendingService` to improve the `returnBook` method — instead of a blind
-   delete, look up the borrower first and verify it matches the member returning the book.
+- Book on loan returns the borrower
+- Book not on loan returns `Optional.empty()`
+
+Then refactor `LendingService.returnBook` to use `findBorrower` — verify the member
+returning the book is the actual borrower. Existing tests should still pass.
 
 ### Exercise 1.8c — Optional chaining
 
