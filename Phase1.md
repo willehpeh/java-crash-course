@@ -172,10 +172,28 @@ Write tests for each validation rule and for successful construction.
 **Hint:** `String.isBlank()` returns true for null-ish whitespace strings but throws
 on actual `null`. Check for `null` separately, or use: `title == null || title.isBlank()`.
 
-### Exercise 1.2c — Loan receipt formatter
+### Crash Course Aside: Objects Own Their Behaviour
 
-Create a `LoanReceiptFormatter` class with a method that takes a `MemberId`, a list of
-`BookId`s, and returns a formatted string receipt. Use `.formatted()` or `String.format()`.
+In TS/Angular you'll often see a pattern like `FormatterService.format(data)` — a
+stateless service operating on passive data. Yegor Bugayenko argues (and this course
+agrees) that this is procedural programming wearing an OOP hat.
+
+Instead: objects should encapsulate their own behaviour. A `LoanReceipt` knows how to
+represent itself — you don't hand its data to a separate `LoanReceiptFormatter`. The
+object IS the thing, and it can speak for itself.
+
+This means: prefer `receipt.asText()` over `formatter.format(receipt)`. The data and the
+behaviour that operates on it live together.
+
+### Exercise 1.2c — Loan receipt object
+
+Create a `LoanReceipt` class that encapsulates a member's loans and knows how to represent
+itself. The receipt IS the object — not data acted on by a separate formatter.
+
+The constructor takes a `MemberId` and a `List<BookId>` (must contain at least one book —
+a receipt with no books makes no sense).
+
+Add a method `String asText()` that returns a formatted receipt.
 
 Example output:
 ```
@@ -187,7 +205,10 @@ Books on loan: 3
 - B-003
 ```
 
-Write tests that verify the output for various inputs (0 books, 1 book, multiple books).
+Write tests for:
+- A receipt with a single book
+- A receipt with multiple books
+- Construction with an empty list is rejected
 
 **Hint:** `String.join()` can join a list with a delimiter. You'll need to convert the
 `BookId` list to strings first — you can use a loop or (if you want to peek ahead at
