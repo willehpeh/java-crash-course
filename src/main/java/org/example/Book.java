@@ -2,7 +2,7 @@ package org.example;
 
 import static java.util.UUID.randomUUID;
 
-public class Book implements Searchable {
+public class Book implements Searchable, Displayable {
     private final BookId id;
     private String title;
     private String author;
@@ -36,5 +36,10 @@ public class Book implements Searchable {
 
     public BookId id() {
         return id;
+    }
+
+    @Override
+    public String display() {
+        return title + " by " + author;
     }
 }

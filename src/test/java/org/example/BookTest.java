@@ -75,4 +75,14 @@ public class BookTest {
             assertThat(book.matches("Herp Derp")).isFalse();
         }
     }
+    @Nested
+    class Displaying {
+        @Test
+        void shouldDisplayHumanReadable() {
+            Book book = Book.of("The Greatest Gatsby", "Bill Alexander");
+            String displayText = book.display();
+            assertThat(displayText).contains("The Greatest Gatsby");
+            assertThat(displayText).contains("Bill Alexander");
+        }
+    }
 }
