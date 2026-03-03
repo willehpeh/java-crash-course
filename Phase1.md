@@ -82,8 +82,8 @@ Create `src/test/java/org/example/EqualityTest.java`. Write tests that demonstra
 Raw `String` IDs are error-prone — nothing stops you from passing a memberId where a
 bookId is expected. Typed value objects prevent this at compile time.
 
-Create `BookIdTest.java`. Test-drive a `BookId` record (`src/main/java/org/example/`,
-single `String value` field) with these behaviours:
+Create a `BookId` record (`src/main/java/org/example/`, single `String value` field).
+Tests in `BookIdTest.java`:
 
 - Two instances with the same value are `.equals()`
 - Two instances with different values are not
@@ -163,8 +163,8 @@ Create `StringTest.java`. Write tests that explore:
 
 ### Exercise 1.2b — Book record with validation
 
-Create `BookTest.java`. Test-drive a `Book` record with fields `BookId id`, `String title`,
-`String author` and these validation behaviours:
+Create a `Book` record with fields `BookId id`, `String title`, `String author`.
+Tests in `BookTest.java`:
 
 - Blank title is rejected
 - Null title is rejected
@@ -195,8 +195,8 @@ behaviour that operates on it live together.
 
 The receipt IS the object — not data acted on by a separate formatter.
 
-Create `LoanReceiptTest.java`. Test-drive a `LoanReceipt` class (constructor takes
-`MemberId` and `List<BookId>`, method `String asText()`) with these behaviours:
+Create a `LoanReceipt` class (constructor takes `MemberId` and `List<BookId>`, method
+`String asText()`). Tests in `LoanReceiptTest.java`:
 
 - Displays the member ID in its text output
 - Displays the total book count (e.g. "Books on loan: 2")
@@ -281,7 +281,7 @@ Create `AccessModifierTest.java`:
 
 ### Exercise 1.3b — Method overloading and static factory
 
-Test-drive these in `BookTest.java`:
+Add static factory methods to `Book`. Tests in `BookTest.java`:
 
 - `Book.of("Effective Java", "Joshua Bloch")` creates a book with a non-null auto-generated ID
 - Two calls to `Book.of(...)` produce different IDs
@@ -359,7 +359,7 @@ use it in abstract classes to expose methods to subclasses without making them p
 
 ### Exercise 1.4a — Default methods
 
-Create `SearchableTest.java`. Test-drive `matches(String query)` on `Book`:
+Make `Book` searchable. Tests in `SearchableTest.java`:
 
 - A book matches a query that appears in its title
 - A book matches a query that appears in its author
@@ -369,15 +369,15 @@ Create `SearchableTest.java`. Test-drive `matches(String query)` on `Book`:
 Once green, **refactor:** extract the matching logic into a `Searchable` interface with
 a `default` method. The interface declares `String getSearchableText()` (abstract) and
 `default boolean matches(String query)` (does the case-insensitive search). `Book`
-implements `getSearchableText()`. All tests should still pass — this is the refactor step.
+implements `getSearchableText()`. All tests should still pass.
 
 ### Exercise 1.4b — Abstract class
 
-Test-drive in `InMemoryLoanRepositoryTest.java`:
+Add save-counting to `InMemoryLoanRepository`. Test in `InMemoryLoanRepositoryTest.java`:
 
 - Save three loans, then assert `getSaveCount()` returns 3
 
-To make this work, create an abstract class `AuditedRepository` with a `private int saveCount`
+**Refactor** to an abstract class `AuditedRepository` with a `private int saveCount`
 field, a `protected recordSave()` method, and a `public getSaveCount()` method. Make
 `InMemoryLoanRepository` extend it. All existing tests should still pass.
 
@@ -388,7 +388,7 @@ it's worth noticing the tradeoff.)
 
 ### Exercise 1.4c — Multiple interfaces
 
-Test-drive a `Displayable` interface with a `String display()` method. Make `Book`
+Create a `Displayable` interface with a `String display()` method. Make `Book`
 implement both `Searchable` and `Displayable`:
 
 - `book.display()` returns a human-readable string containing the title and author
@@ -488,25 +488,31 @@ public record Book(BookId id, String title, String author) {
 
 **Records are final** — you can't extend them. They implicitly extend `java.lang.Record`.
 
-### Exercise 1.5a — LoanStatus state machine
+### Exercise 1.5a — Loan with status
 
-Create `LoanStatusTest.java`. Test-drive a `LoanStatus` enum with `ACTIVE`, `OVERDUE`,
-`RETURNED` and a `canTransitionTo(LoanStatus target)` method. Valid transitions:
+Create a `Loan` class that tracks the status of a single loan. Constructor takes
+`MemberId`, `BookId`. A new loan starts as `ACTIVE`. The `LoanStatus` enum (`ACTIVE`,
+`OVERDUE`, `RETURNED`) should emerge as an implementation detail, not be tested in
+isolation. Tests in `LoanTest.java`:
 
-- `ACTIVE` → `OVERDUE` or `RETURNED`
-- `OVERDUE` → `RETURNED`
-- `RETURNED` → nothing (terminal)
+- A new loan is active
+- An active loan can be returned
+- An active loan can be marked overdue
+- An overdue loan can be returned
+- A returned loan cannot be returned again
+- A returned loan cannot be marked overdue
+- An overdue loan cannot be marked overdue again
 
-Once the individual tests are green, refactor them into parameterized tests (`@CsvSource`
-works well here) covering all valid and invalid transitions.
-
-**Hint:** Make `canTransitionTo` an abstract method on the enum, with each constant
-providing its own implementation (see the Read First section above for the syntax).
+Start with the transition logic wherever feels natural (probably `Loan` itself). Once
+all tests are green, **refactor:** move the transition rules into the `LoanStatus` enum
+by adding an abstract `canTransitionTo(LoanStatus target)` method with per-constant
+implementations (see the Read First section above for the syntax). `Loan` delegates to the
+enum instead of containing the rules directly. All tests should still pass.
 
 ### Exercise 1.5b — BookGenre with fields
 
-Create `BookGenreTest.java`. Test-drive a `BookGenre` enum with constants `FICTION`,
-`NON_FICTION`, `REFERENCE`, each with a `String displayName` and `int maxLoanDays`:
+Create a `BookGenre` enum with constants `FICTION`, `NON_FICTION`, `REFERENCE`, each with
+a `String displayName` and `int maxLoanDays`. Tests in `BookGenreTest.java`:
 
 - `FICTION.getDisplayName()` returns `"Fiction"`
 - `REFERENCE.getMaxLoanDays()` returns the expected value
@@ -515,8 +521,8 @@ Create `BookGenreTest.java`. Test-drive a `BookGenre` enum with constants `FICTI
 
 ### Exercise 1.5c — Enrich the Book record
 
-Test-drive in `BookTest.java`. Add a `BookGenre genre` field to the `Book` record
-(fix all existing construction sites) and a `boolean isLongLoan()` method:
+Add a `BookGenre genre` field to the `Book` record (fix all existing construction sites)
+and a `boolean isLongLoan()` method. Tests in `BookTest.java`:
 
 - A `FICTION` book (with `maxLoanDays > 14`) returns true for `isLongLoan()`
 - A `REFERENCE` book (with `maxLoanDays <= 14`) returns false for `isLongLoan()`
@@ -578,8 +584,8 @@ case BookBorrowed b when b.memberId().equals(currentUser) -> "You borrowed: " + 
 
 ### Exercise 1.6a — Library event hierarchy
 
-Create `LibraryEventTest.java`. Test-drive a `sealed interface LibraryEvent` with these
-record types:
+Create a `sealed interface LibraryEvent` with these record types. Tests in
+`LibraryEventTest.java`:
 
 - `BookAdded(BookId bookId, String title, String author)`
 - `BookBorrowed(MemberId memberId, BookId bookId)`
@@ -589,9 +595,9 @@ Test each event type's fields.
 
 ### Exercise 1.6b — Pattern matching event processor
 
-Create `EventProcessorTest.java`. Test-drive an `EventProcessor` class with a
-`String describe(LibraryEvent event)` method using a `switch` expression with pattern
-matching. One test per event type — each should return a descriptive string.
+Create an `EventProcessor` class with a `String describe(LibraryEvent event)` method
+using a `switch` expression with pattern matching. Tests in `EventProcessorTest.java` —
+one per event type, each asserting a descriptive string.
 
 Once all cases pass, add a new event type `MemberRegistered(MemberId memberId, String name)`
 to the sealed interface's `permits` list. **Don't** add it to the `switch` yet — try
@@ -644,9 +650,9 @@ Consequences:
 
 ### Exercise 1.7a — Generic Result type
 
-This is similar to TS's `Result<T, E>`. Create `ResultTest.java`. Test-drive a
-`sealed interface Result<T>` with `record Success<T>(T value)` and
-`record Failure<T>(String message)`. Behaviours to drive:
+This is similar to TS's `Result<T, E>`. Create a `sealed interface Result<T>` with
+`record Success<T>(T value)` and `record Failure<T>(String message)`. Tests in
+`ResultTest.java`:
 
 - `Success.isSuccess()` is true, `Failure.isSuccess()` is false
 - `Success.getOrElse(default)` returns the value; `Failure` returns the default
@@ -671,9 +677,8 @@ Write tests that demonstrate type erasure:
 
 ### Exercise 1.7c — Bounded types
 
-Create `BoundedTypeTest.java`. Test-drive a generic method
-`<T extends Comparable<T>> T max(T a, T b)` (put it in the test class as a `private static`
-helper):
+Write a generic method `<T extends Comparable<T>> T max(T a, T b)` (put it in the test
+class as a `private static` helper). Tests in `BoundedTypeTest.java`:
 
 - `max(3, 7)` returns `7`
 - `max("apple", "banana")` returns `"banana"`
@@ -743,8 +748,8 @@ Before you start — a design note:
 - "Does this member have any books?" → return `List<BookId>` (empty list = no books)
 - "Is this specific book on loan?" → return `Optional<MemberId>` (the borrower, or empty)
 
-Test-drive `Optional<MemberId> findBorrower(BookId bookId)` on `LoanRepository` via
-contract tests in `InMemoryLoanRepositoryTest.java`:
+Add `Optional<MemberId> findBorrower(BookId bookId)` to `LoanRepository`. Contract tests
+in `InMemoryLoanRepositoryTest.java`:
 
 - Book on loan returns the borrower
 - Book not on loan returns `Optional.empty()`
