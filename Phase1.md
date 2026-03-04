@@ -509,23 +509,15 @@ by adding an abstract `canTransitionTo(LoanStatus target)` method with per-const
 implementations (see the Read First section above for the syntax). `Loan` delegates to the
 enum instead of containing the rules directly. All tests should still pass.
 
-### Exercise 1.5b — BookGenre with fields
+### Exercise 1.5b — Book genre and loan duration
 
-Create a `BookGenre` enum with constants `FICTION`, `NON_FICTION`, `REFERENCE`, each with
-a `String displayName` and `int maxLoanDays`. Tests in `BookGenreTest.java`:
+Add a `BookGenre genre` field to `Book` (fix all existing construction sites). The
+`BookGenre` enum (`FICTION`, `NON_FICTION`, `REFERENCE`) with `displayName` and
+`maxLoanDays` fields should emerge from making these tests pass in `BookTest.java`:
 
-- `FICTION.getDisplayName()` returns `"Fiction"`
-- `REFERENCE.getMaxLoanDays()` returns the expected value
-- An `EnumMap<BookGenre, Integer>` can count books per genre (`EnumMap` is a specialised,
-  high-performance `Map` for enum keys)
-
-### Exercise 1.5c — Enrich the Book record
-
-Add a `BookGenre genre` field to the `Book` record (fix all existing construction sites)
-and a `boolean isLongLoan()` method. Tests in `BookTest.java`:
-
-- A `FICTION` book (with `maxLoanDays > 14`) returns true for `isLongLoan()`
-- A `REFERENCE` book (with `maxLoanDays <= 14`) returns false for `isLongLoan()`
+- A fiction book is a long loan (`isLongLoan()` returns true when `maxLoanDays > 14`)
+- A reference book is not a long loan
+- A book exposes its genre's display name (e.g. `"Fiction"`)
 
 ---
 
