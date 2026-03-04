@@ -1,5 +1,7 @@
-package org.example;
+package org.example.Loan;
 
+import org.example.Book.BookId;
+import org.example.MemberId;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

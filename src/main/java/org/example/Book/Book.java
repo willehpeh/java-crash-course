@@ -1,4 +1,7 @@
-package org.example;
+package org.example.Book;
+
+import org.example.Displayable;
+import org.example.Searchable;
 
 import static java.util.UUID.randomUUID;
 

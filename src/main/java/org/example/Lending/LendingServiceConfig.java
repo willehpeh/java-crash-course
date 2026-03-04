@@ -1,3 +1,3 @@
-package org.example;
+package org.example.Lending;
 
 public record LendingServiceConfig(int lendingLimit) {}

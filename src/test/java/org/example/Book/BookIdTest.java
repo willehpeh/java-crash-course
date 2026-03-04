@@ -1,4 +1,4 @@
-package org.example;
+package org.example.Book;
 
 import org.junit.jupiter.api.Test;
 

@@ -1,6 +1,9 @@
-package org.example;
+package org.example.Loan;
 
-import static org.example.LoanStatus.*;
+import org.example.Book.BookId;
+import org.example.MemberId;
+
+import static org.example.Loan.LoanStatus.*;
 
 public class Loan {
 

@@ -1,4 +1,4 @@
-package org.example;
+package org.example.Book;
 
 public record BookId(String value) {
     public BookId {
