@@ -577,14 +577,14 @@ be a polymorphic method on the object itself.
 
 ### Exercise 1.6a — Library event hierarchy
 
-Create a `sealed interface LibraryEvent` with these record types:
+Create a `LibraryEvent` interface with a `String asText()` method, and these record types
+that implement it:
 
 - `BookAdded(BookId bookId, String title, String author)`
 - `BookBorrowed(MemberId memberId, BookId bookId)`
 - `BookReturned(MemberId memberId, BookId bookId)`
 
-Each event should have a `String asText()` method — the event owns its own description.
-Tests in `LibraryEventTest.java`:
+Each event owns its own description. Tests in `LibraryEventTest.java`:
 
 - `BookAdded` asText contains the title
 - `BookBorrowed` asText contains the member ID and book ID
@@ -592,10 +592,14 @@ Tests in `LibraryEventTest.java`:
 
 ### Exercise 1.6b — Event serialiser/deserialiser
 
+Now you need to switch exhaustively over all event types — this is where `sealed` earns
+its keep. Make `LibraryEvent` a `sealed interface` with a `permits` clause listing all
+three record types.
+
 Create an `EventSerializer` with a `String serialize(LibraryEvent event)` method that
 converts events to a pipe-delimited string format. Create an `EventDeserializer` with a
-`LibraryEvent deserialize(String raw)` method that parses them back. Both use exhaustive
-switch. Tests in `EventSerializerTest.java`:
+`LibraryEvent deserialize(String raw)` method that parses them back. The serialiser uses
+an exhaustive switch — no `default` needed. Tests in `EventSerializerTest.java`:
 
 Serialiser:
 - `BookAdded` serialises to `BOOK_ADDED|bookId|title|author`
