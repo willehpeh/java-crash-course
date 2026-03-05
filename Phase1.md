@@ -575,31 +575,19 @@ These are places where you're translating between your domain and an external fo
 protocol. The switch belongs in the code that maps between worlds — not in code that could
 be a polymorphic method on the object itself.
 
-### Exercise 1.6a — Library event hierarchy
+### Exercise 1.6a — Event serialiser/deserialiser
 
-Create a `LibraryEvent` interface with a `String asText()` method, and these record types
-that implement it:
+This exercise drives the creation of the event types themselves. You'll need:
 
+- A `sealed interface LibraryEvent` with a `permits` clause
 - `BookAdded(BookId bookId, String title, String author)`
 - `BookBorrowed(MemberId memberId, BookId bookId)`
 - `BookReturned(MemberId memberId, BookId bookId)`
 
-Each event owns its own description. Tests in `LibraryEventTest.java`:
-
-- `BookAdded` asText contains the title
-- `BookBorrowed` asText contains the member ID and book ID
-- `BookReturned` asText contains the member ID and book ID
-
-### Exercise 1.6b — Event serialiser/deserialiser
-
-Now you need to switch exhaustively over all event types — this is where `sealed` earns
-its keep. Make `LibraryEvent` a `sealed interface` with a `permits` clause listing all
-three record types.
-
 Create an `EventSerializer` with a `String serialize(LibraryEvent event)` method that
-converts events to a pipe-delimited string format. Create an `EventDeserializer` with a
-`LibraryEvent deserialize(String raw)` method that parses them back. The serialiser uses
-an exhaustive switch — no `default` needed. Tests in `EventSerializerTest.java`:
+converts events to a pipe-delimited string format using an exhaustive switch — no
+`default` needed. Create an `EventDeserializer` with a `LibraryEvent deserialize(String raw)`
+method that parses them back. Tests in `EventSerializerTest.java`:
 
 Serialiser:
 - `BookAdded` serialises to `BOOK_ADDED|bookId|title|author`
@@ -615,6 +603,15 @@ Deserialiser:
 - `String.split("\\|")` splits on pipe (pipe is a regex special char, needs escaping)
 - `String.join("|", parts)` joins with pipe
 - The deserialiser can switch on the first element of the split array (the tag string)
+
+### Exercise 1.6b — Events own their description
+
+Each event should have a `String asText()` method — add it to the `LibraryEvent` interface.
+Tests in `LibraryEventTest.java`:
+
+- `BookAdded` asText contains the title
+- `BookBorrowed` asText contains the member ID and book ID
+- `BookReturned` asText contains the member ID and book ID
 
 ### Exercise 1.6c — Compiler-enforced exhaustiveness
 
