@@ -18,17 +18,11 @@ public class Loan {
     }
 
     public void returnLoan() {
-        if (!status.canTransitionTo(RETURNED)) {
-            throw new IllegalStateException("Loan cannot be returned");
-        }
-        status = RETURNED;
+        status = status.transitionTo(RETURNED);
     }
 
     public void markAsOverdue() {
-        if (!status.canTransitionTo(OVERDUE)) {
-            throw new IllegalStateException("Loan cannot be marked as overdue");
-        }
-        status = OVERDUE;
+        status = status.transitionTo(OVERDUE);
     }
 }
 

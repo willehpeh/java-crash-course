@@ -3,22 +3,31 @@ package org.example.Loan;
 public enum LoanStatus {
     ACTIVE {
         @Override
-        public boolean canTransitionTo(LoanStatus status) {
-            return status == OVERDUE || status == RETURNED;
+        public LoanStatus transitionTo(LoanStatus target) {
+            if (target == ACTIVE) {
+                throw new IllegalStateException("Cannot transition from ACTIVE to " + target);
+            }
+            return target;
         }
     },
     RETURNED {
         @Override
-        public boolean canTransitionTo(LoanStatus status) {
-            return status == ACTIVE;
+        public LoanStatus transitionTo(LoanStatus target) {
+            if (target == RETURNED || target == OVERDUE) {
+                throw new IllegalStateException("Cannot transition from RETURNED to " + target);
+            }
+            return target;
         }
     },
     OVERDUE {
         @Override
-        public boolean canTransitionTo(LoanStatus status) {
-            return status == ACTIVE || status == RETURNED;
+        public LoanStatus transitionTo(LoanStatus target) {
+            if (target == OVERDUE) {
+                throw new IllegalStateException("Cannot transition from OVERDUE to " + target);
+            }
+            return target;
         }
     };
 
-    public abstract boolean canTransitionTo(LoanStatus status);
+    public abstract LoanStatus transitionTo(LoanStatus target);
 }
