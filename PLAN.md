@@ -9,11 +9,21 @@
 >   implementations of interfaces) and **stubs** (simple objects returning canned values).
 > - This naturally teaches good Java design: programming to interfaces, dependency inversion,
 >   and ports & adapters — all driven by the tests, not by framework magic.
->
-> **Unifying project: a Library Management System.**
-> Starting from Phase 1.2, concepts are applied to a running domain model (books, members,
-> loans, search, persistence) that grows with each phase. Standalone "concept exploration" tests
-> exist alongside the project tests.
+
+### Two Repositories, One Learning Path
+
+This crash course spans **two repositories**:
+
+1. **`java-crash-course`** (this repo) — Phases 0–4 use a **Library Management System** as the
+   unifying domain. Standalone concept-exploration tests exist alongside the project tests.
+2. **`ecommerce`** (separate repo) — Starting at Phase 5, exercises target an **e-commerce platform**
+   that the developer builds independently. The crash course provides structured exercises; the
+   developer owns the codebase.
+
+**The transition:** Phases 0–4 teach the language through the Library domain. Phase 5 pivots to the
+e-commerce project for ecosystem tooling. Phase 6 builds the first bounded context (Catalog) with
+Spring Boot. After Phase 6, the structured course ends — the developer has enough Java fluency to
+build independently, using Claude Code as a resource when needed.
 
 ---
 
@@ -245,55 +255,103 @@
 
 ---
 
-## Phase 5 — Build System, Ecosystem & Practical Java
+## Phase 5 — E-Commerce Project Bootstrap
 
-> Reference and orientation — lighter on TDD, heavier on "things you need to know."
+> **Domain shift.** The Library domain is complete. From here, exercises target the
+> e-commerce platform in a separate repository. Same detailed phase file style — Read First
+> sections, exercises with hints, "watch out" boxes — but all work happens in the e-commerce
+> codebase.
 
-### 5.1 Maven Deep Dive
-- `pom.xml` structure: parent POM, properties, dependency management
-- Plugins: `compiler`, `surefire`, `failsafe` (integration tests), `shade` (fat JAR)
-- Profiles — environment-specific builds
-- Multi-module projects — when and why
-- Maven vs Gradle — brief comparison (Gradle ≈ build scripts with a Groovy/Kotlin DSL)
+### 5.1 Multi-Module Maven
+- **Exercise:** scaffold the e-commerce multi-module project from scratch
+- Parent POM: `<modules>`, `<dependencyManagement>`, `<pluginManagement>`, properties
+- BOM alignment — ensuring all modules use consistent dependency versions
+- Module structure: `common`, `catalog`, `order`, `inventory`, `cart`, `payment`, `search`, `notification`, `gateway`
+- Each module gets its own `pom.xml` inheriting from the parent
+- Inter-module dependencies: `catalog` depends on `common`, etc.
+- Build ordering: Maven's reactor and `mvn install` vs `mvn verify`
+- **Watch out:** multi-module dependency cycles are a build error. Design module boundaries carefully up front.
 
-### 5.2 Java Ecosystem Orientation
-- **Logging:** SLF4J + Logback — the universal standard. Equivalent of `console.log` but structured and configurable.
-- **Lombok:** `@Data`, `@Builder`, `@Slf4j`, `@RequiredArgsConstructor` — code generation via annotations. Controversial but ubiquitous. You'll see it everywhere, decide later if you like it.
-- **Jackson:** already covered in Phase 3 — the JSON library.
-- **MapStruct:** compile-time object mapping (DTO ↔ entity). Mention only.
-- **Flyway/Liquibase:** database migration tools (≈ EF migrations). Mention only.
-- **Testcontainers:** spin up Docker containers in tests (databases, queues). Covered in Phase 6.
+### 5.2 Architecture Decision Records
+- **Exercise:** write the initial ADR set for the e-commerce project in `docs/adr/`
+- ADR format: Context / Decision / Consequences (keep it simple)
+- ADRs to write:
+  - `0001-use-java-25.md`
+  - `0002-use-spring-boot-4.md`
+  - `0003-use-maven.md`
+  - `0004-use-axon-framework-5.md`
+  - `0005-use-jpa-event-store-not-axon-server.md`
+  - `0006-modular-monolith-architecture.md`
+  - `0007-cqrs-es-for-order-and-inventory.md`
+  - `0008-crud-for-catalog-pricing-identity.md`
+  - `0009-no-external-broker-initially.md`
+- Why ADRs matter: when you revisit a decision in 6 months, the "why" is documented
 
-### 5.3 Date & Time API (`java.time`)
+### 5.3 Logging — SLF4J + Logback
+- **Exercise:** configure structured logging across the e-commerce modules
+- SLF4J as the facade, Logback as the implementation — why the abstraction layer matters
+- `LoggerFactory.getLogger(MyClass.class)` — one logger per class
+- Log levels: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR` — when to use each
+- `logback.xml` / `logback-spring.xml` configuration: appenders, patterns, rolling files
+- MDC (Mapped Diagnostic Context) — adding request IDs, user IDs to every log line
+- **Exercise:** add logging to a service class, configure per-module log levels
+- **Watch out:** never log sensitive data (passwords, tokens, PII). Never use string concatenation in log calls — use parameterized messages: `log.info("Order {} placed", orderId)`.
+
+### 5.4 Database Migrations with Flyway
+- **Exercise:** set up Flyway for the catalog module with an initial schema migration
+- Why migrations: version-controlled, repeatable database changes (≈ EF migrations, ≈ Prisma migrate)
+- Migration naming: `V1__create_product_table.sql`, `V2__add_category_column.sql`
+- Flyway + Spring Boot auto-configuration — migrations run on startup
+- Testcontainers + Flyway — real PostgreSQL in tests, migrations applied automatically
+- Baseline migrations — when you adopt Flyway on an existing database
+- **Watch out:** never edit a migration that has already been applied. Write a new one instead. Flyway checksums will catch you if you try.
+
+### 5.5 ArchUnit — Enforcing Architecture
+- **Exercise:** write ArchUnit rules for the e-commerce project
+- What ArchUnit does: tests that verify your code's structure (package dependencies, naming, annotations)
+- Rules to implement:
+  - Domain model classes must not depend on Spring annotations
+  - No module may depend on another module's internal packages
+  - Controllers live in `*.api` packages, entities in `*.domain`
+  - No `java.util.logging` — enforce SLF4J usage
+- How to write custom rules with the fluent API
+- Running ArchUnit tests — they're just JUnit tests
+- **Watch out:** ArchUnit rules are only as good as you make them. Start with a few critical rules and add more as the codebase grows.
+
+### 5.6 Date & Time API (`java.time`)
 - **Tests:** create, manipulate, format, compare dates and times
 - `LocalDate`, `LocalTime`, `LocalDateTime` — no timezone
 - `ZonedDateTime`, `Instant`, `Duration`, `Period`
 - `DateTimeFormatter` — parsing and formatting
 - Immutable and thread-safe (unlike old `java.util.Date`)
+- **E-commerce context:** order timestamps (`Instant`), promotion date ranges (`LocalDate`), shipping estimates (`Duration`)
 - **Watch out:** nothing like JS `Date`. Much better designed. `LocalDate.now()` gives you today, not a timestamp.
 
-### 5.4 Common Annotations You'll Encounter
-- `@Override` — already covered, always use it
-- `@Deprecated` — marks APIs for removal
-- `@SuppressWarnings` — silence specific warnings
-- `@FunctionalInterface` — already covered
-- `@SafeVarargs` — suppresses heap pollution warnings on generic varargs
-- Jakarta annotations: `@Inject`, `@Named`, `@PostConstruct` — framework-agnostic DI (Spring supports these too)
+### 5.7 Capstone — Project Skeleton
+- **Exercise:** verify the full multi-module project builds and passes all ArchUnit rules
+- All modules compile, parent POM manages dependencies correctly
+- Flyway migration runs against Testcontainers PostgreSQL
+- ArchUnit rules pass
+- Logging configured and producing output
+- ADRs committed in `docs/adr/`
+- The e-commerce project is ready for feature development in Phase 6
 
 ---
 
-## Phase 6 — Spring Boot (the Angular of Java)
+## Phase 6 — Spring Boot & the Catalog Context
 
-> The library project becomes a web application.
+> **The Catalog bounded context.** Standard CRUD with Spring Data JPA — deliberately not
+> event-sourced. Same Spring Boot concepts that would have applied to the Library REST API,
+> but targeting the e-commerce domain. Same detailed phase file style.
 
 ### 6.1 Core Concepts & Dependency Injection
-- **Tests:** wire up beans with `@SpringBootTest`, assert DI works. Use fakes: register your `InMemoryBookRepository` as a bean for testing.
+- **Tests:** wire up beans with `@SpringBootTest`, assert DI works. Register fakes (e.g., `InMemoryProductRepository`) as beans for testing.
 - Spring's DI container (≈ Angular's injector)
 - `@Component`, `@Service`, `@Repository`, `@Controller` — stereotypes (≈ `@Injectable()`)
 - Constructor injection — preferred (no `@Autowired` needed when single constructor)
 - `@Configuration` + `@Bean` — manual wiring for complex setup
 - `@Profile` — swap implementations per environment (e.g., in-memory for tests, Postgres for prod)
-- **Detroit-school approach:** instead of mocking the repository, register your `InMemoryBookRepository` as a `@Bean` in test configuration. Real objects, real behavior.
+- **Detroit-school approach:** register your `InMemoryProductRepository` as a `@Bean` in test configuration. Real objects, real behavior.
 
 ### 6.2 Spring Web — REST APIs
 - **Tests:** `MockMvc` to test controllers without starting a server. Fakes for the service layer.
@@ -303,78 +361,99 @@
 - Response types: `ResponseEntity<T>` for control over status codes
 - Exception handling with `@ControllerAdvice` + `@ExceptionHandler`
 - Input validation: `@Valid` + Jakarta Bean Validation (`@NotNull`, `@Size`, `@Email`, etc.)
-- **Contrast with Angular:** you're building the API that your Angular app would call.
+- **E-commerce exercise:** Product CRUD endpoints — create product, get by ID, list by category, update, soft-delete
 
-### 6.3 Spring Data JPA
-- **Tests:** `@DataJpaTest` with in-memory H2 database — real DB, no fakes needed (the DB *is* the fake)
+### 6.3 Spring Data JPA — Catalog Entities
+- **Tests:** `@DataJpaTest` with Testcontainers PostgreSQL — real DB, Flyway migrations applied
 - JPA entities: `@Entity`, `@Id`, `@GeneratedValue`, `@Column`
-- Relationships: `@OneToMany`, `@ManyToOne`, `@ManyToMany`
-- Spring Data repositories: `JpaRepository<Book, Long>` — interface only, Spring generates the implementation
-- Query methods by naming convention: `findByTitleContainingIgnoreCase(String title)`
-- Custom queries: `@Query("SELECT b FROM Book b WHERE ...")`
+- Catalog domain model: `Product`, `Category`, `ProductImage`
+- Relationships: `@ManyToOne` (product → category), `@OneToMany` (product → images)
+- Spring Data repositories: `JpaRepository<Product, UUID>` — interface only, Spring generates the implementation
+- Query methods by naming convention: `findByCategoryIdAndActiveTrue(UUID categoryId)`
+- Custom queries: `@Query("SELECT p FROM Product p WHERE ...")`
+- **Watch out:** JPA entities need a no-arg constructor (can be `protected`). They are not the same as your domain model — keep them in an infrastructure/persistence package and map to domain objects.
 - **Contrast with TypeORM / Entity Framework:** similar concepts, annotation-driven instead of decorator-driven.
 
 ### 6.4 Layered Architecture & Integration Testing
 - **Tests:** full integration tests with `@SpringBootTest` + `TestRestTemplate` or `WebTestClient`
-- Controller → Service → Repository — standard layering
+- Controller → Service → Repository — standard layering within the catalog module
 - How Detroit-school testing applies at each layer:
-  - **Unit tests:** service with `InMemoryBookRepository` (fake)
-  - **Integration tests:** real Spring context, H2 database, actual HTTP calls
+  - **Unit tests:** service with `InMemoryProductRepository` (fake)
+  - **Integration tests:** real Spring context, Testcontainers PostgreSQL, actual HTTP calls
   - **Contract tests:** same interface tests run against fake and real repository
-- Testcontainers — when you need a real Postgres instead of H2
+- Testcontainers — real Postgres, not H2. The e-commerce project uses PostgreSQL-specific features (BYTEA, etc.)
 
-### 6.5 Spring Security (essentials only)
-- **Tests:** `@WithMockUser`, security filter chain tests
-- Authentication vs Authorization
-- Security filter chain configuration
-- Method-level security: `@PreAuthorize("hasRole('ADMIN')")`
-- JWT basics — reference only, not a full implementation
-
-### 6.6 Capstone — Library REST API
-- Full CRUD API for books and members
-- Loan management (borrow, return, overdue detection)
-- Test pyramid: unit tests (fakes) → integration tests (H2) → API tests (MockMvc)
+### 6.5 Capstone — Catalog API
+- Full CRUD API for products and categories
+- Product listing with filtering (by category, active status, price range)
+- Test pyramid: unit tests (fakes) → integration tests (Testcontainers) → API tests (MockMvc)
 - All driven by TDD from the start
+- Verify ArchUnit rules still pass with the new code
+- The Catalog context is complete and production-shaped — ready to integrate with Order and Inventory contexts later
 
 ---
 
-## Phase 7 — Advanced Topics
+## After Phase 6 — Guided Build
 
-### 7.1 Generics — The Deep End
+> **The course format ends here.** You have enough Java fluency to build independently.
+> No more phase files, exercises, or structured curriculum.
+
+From here, you build the remaining e-commerce bounded contexts on your own, using Claude Code
+as a resource when you choose. The order below is a suggested progression, not a prescription:
+
+1. **Order Management** — CQRS/ES via Axon 5. Aggregates, command handlers, event handlers, stateful event handlers (Axon 5's replacement for sagas). The richest domain and the primary learning ground for event sourcing.
+2. **Inventory** — CQRS/ES via Axon 5. Stock movements as events. Concurrency challenges (two orders reserving the last item).
+3. **Payment** — Integration layer with Stripe test mode. Anti-corruption layer pattern. Not event-sourced.
+4. **Cart** — Redis-backed, short-lived state.
+5. **Search** — Elasticsearch projections from catalog/inventory events.
+6. **Notification** — Pure event consumer. Listens to domain events, sends emails/webhooks.
+7. **Gateway** — API layer, authentication (Spring Security + JWT), routing.
+
+### Key Technical Challenges to Expect
+
+These will come up naturally as you build. Research them when you hit them, not before:
+
+- **Jackson polymorphic deserialization** (`@JsonTypeInfo`, `@JsonSubTypes`) for sealed event hierarchies — needed when Axon serializes/deserializes events
+- **Generics and type erasure** in reusable command/event handler infrastructure
+- **Spring transaction propagation** + `@TransactionalEventListener` interactions with Axon
+- **Hibernate BYTEA dialect fix** for PostgreSQL — Axon's JPA event store uses `@Lob`, which maps incorrectly without a custom dialect
+- **Axon 5 API differences** — most online content targets Axon 4. Use official Axon 5 documentation as the source of truth
+- **Order fulfillment saga** — Order placed → payment authorized → inventory reserved → payment captured → shipped → inventory decremented. Every step can fail. Compensation at each step.
+
+---
+
+## Reference Appendix — Advanced Java Topics
+
+> Not a structured phase. Consult these topics as they become relevant during the build.
+> Each topic includes enough context to know *when* you need it.
+
+### Generics — The Deep End
 - Wildcards: `<? extends Foo>` (producer), `<? super Foo>` (consumer)
 - PECS: Producer Extends, Consumer Super
 - Recursive bounds: `<T extends Comparable<T>>`
 - Type tokens and `Class<T>` — working around type erasure
-- When you actually need this: writing libraries, generic data structures
+- **When you'll need this:** writing reusable Axon command/event handler infrastructure, generic repository base classes
 
-### 7.2 Reflection & Custom Annotations
-- **Tests:** write custom annotations, assert they're discoverable and functional
+### Reflection & Custom Annotations
 - `@Retention(RUNTIME)`, `@Target(METHOD)` — annotation meta-annotations
 - `Class.getDeclaredMethods()`, `Method.getAnnotation()` — reading at runtime
-- Build a simple annotation-driven validator (educational, not production)
-- Why frameworks (Spring, Hibernate, Jackson) are built on reflection
+- Why frameworks (Spring, Hibernate, Jackson, Axon) are built on reflection
+- **When you'll need this:** debugging framework behavior, understanding how Axon discovers handlers, custom validation
 
-### 7.3 Design Patterns — Java Idioms
-- **Tests:** each pattern TDD'd
-- **Builder** — very common in Java (no object spread like TS)
+### Design Patterns — Java Idioms
+- **Builder** — very common in Java (no object spread like TS). Used heavily in Axon command/event construction.
 - **Factory Method / Abstract Factory** — static factory methods (`List.of()`, `Optional.of()`)
 - **Strategy** — interface + implementations (natural fit for DI and fakes)
-- **Decorator** — wrapping interfaces (e.g., logging decorator around `BookRepository`)
-- **Observer** — `java.util.Observer` is deprecated, but the pattern is everywhere in Spring events
+- **Decorator** — wrapping interfaces (e.g., logging decorator around a repository)
+- **Observer** — the pattern behind Spring events and Axon's event handling
 
-### 7.4 Performance & JVM Internals
+### Performance & JVM Internals
 - JVM architecture: classloading → bytecode verification → JIT compilation
 - Memory model: heap (objects), stack (method frames), metaspace (class metadata)
 - Garbage collection: G1 (default), ZGC (low-latency), Shenandoah
-- When to care about GC: high-throughput or low-latency requirements
 - Profiling: JFR (Java Flight Recorder) + JMC (Mission Control) — built into the JDK
+- **When you'll need this:** diagnosing slow event projections, optimizing query-side read models, production performance tuning
 - **Watch out:** premature optimization is the root of all evil. Profile first, optimize second.
-
-### 7.5 Reactive Programming (optional)
-- Project Reactor: `Mono<T>`, `Flux<T>` (≈ RxJS `Observable`)
-- Spring WebFlux — reactive web stack
-- Testing with `StepVerifier`
-- **Honest assessment:** with virtual threads (Phase 4.4), reactive is increasingly niche. Learn it if your team uses it, skip it otherwise.
 
 ---
 
@@ -389,15 +468,11 @@ Each section follows the Detroit-school TDD cycle:
 5. **"Watch out"** — common traps for TS/JS developers
 
 **Testing philosophy:**
-- No mock frameworks. Ever.
-- **Fakes:** in-memory implementations of interfaces (e.g., `InMemoryBookRepository`). These are real objects with real behavior, kept in `src/test/java`.
+- No mock frameworks. Ever. (Mockito only for genuinely external concerns: HTTP clients, third-party APIs.)
+- **Fakes:** in-memory implementations of interfaces (e.g., `InMemoryProductRepository`). These are real objects with real behavior, kept in `src/test/java`.
 - **Stubs:** simple objects returning canned values. Use when behavior doesn't matter for the test.
 - **Self-shunt:** the test class itself implements an interface when convenient.
 - **Contract tests:** same test suite runs against fake and real implementations to ensure they behave identically.
-
-**Code lives in:**
-- `src/main/java/org/example/` — production code, organized by package per domain concept
-- `src/test/java/org/example/` — tests and fakes
 
 ---
 
@@ -410,8 +485,8 @@ Each section follows the Detroit-school TDD cycle:
 | **2** | 1-2 | Collections, lambdas, streams — the functional toolkit |
 | **3** | 1 | Exceptions, I/O, Jackson — file-based persistence |
 | **4** | 1-2 | Concurrency — the big conceptual leap from TS |
-| **5** | 0.5 | Ecosystem orientation, date/time, logging |
-| **6** | 3-4 | Spring Boot — the library becomes a real web app |
-| **7** | as needed | Advanced topics based on what you're building |
+| **5** | 2-3 | E-commerce project bootstrap — Maven multi-module, Flyway, logging, ArchUnit |
+| **6** | 2-3 | Spring Boot — Catalog bounded context (CRUD, REST, JPA) |
 
-**Total: ~10-14 sessions to be fully operational.**
+**Total: ~10-15 sessions to complete the structured course.**
+After that, you're building independently.
