@@ -543,11 +543,11 @@ public record BookReturned(MemberId memberId, BookId bookId) implements LibraryE
 knows the complete set of subtypes, which enables exhaustive `switch`:
 
 ```java
-String describe(LibraryEvent event) {
+String serialize(LibraryEvent event) {
     return switch (event) {
-        case BookAdded a -> "Added: " + a.title();
-        case BookBorrowed b -> "Borrowed: " + b.bookId();
-        case BookReturned r -> "Returned: " + r.bookId();
+        case BookAdded a -> "BOOK_ADDED|" + a.bookId() + "|" + a.title();
+        case BookBorrowed b -> "BOOK_BORROWED|" + b.memberId() + "|" + b.bookId();
+        case BookReturned r -> "BOOK_RETURNED|" + r.memberId() + "|" + r.bookId();
         // no default needed — the compiler knows this is exhaustive
     };
 }
@@ -555,14 +555,6 @@ String describe(LibraryEvent event) {
 
 If you add a new event type to the `permits` list, every `switch` on `LibraryEvent` that
 isn't exhaustive will fail to compile. The compiler forces you to handle it.
-
-**Pattern matching with `instanceof`:**
-```java
-if (event instanceof BookAdded added) {
-    // 'added' is automatically cast — no explicit cast needed
-    System.out.println(added.title());
-}
-```
 
 **Record destructuring in patterns:**
 ```java
@@ -574,33 +566,57 @@ case BookAdded(var bookId, var title) -> "Added: " + title;
 case BookBorrowed b when b.memberId().equals(currentUser) -> "You borrowed: " + b.bookId();
 ```
 
+**Where does exhaustive switch belong?** Each domain object should own its own behaviour
+— a `BookAdded` event knows how to describe itself via `asText()`, not via an external
+`EventProcessor.describe()` switch. So where *does* exhaustive switch shine?
+
+At **infrastructure boundaries**: serialisation, deserialisation, routing, factory methods.
+These are places where you're translating between your domain and an external format or
+protocol. The switch belongs in the code that maps between worlds — not in code that could
+be a polymorphic method on the object itself.
+
 ### Exercise 1.6a — Library event hierarchy
 
-Create a `sealed interface LibraryEvent` with these record types. Tests in
-`LibraryEventTest.java`:
+Create a `sealed interface LibraryEvent` with these record types:
 
 - `BookAdded(BookId bookId, String title, String author)`
 - `BookBorrowed(MemberId memberId, BookId bookId)`
 - `BookReturned(MemberId memberId, BookId bookId)`
 
-Test each event type's fields.
+Each event should have a `String asText()` method — the event owns its own description.
+Tests in `LibraryEventTest.java`:
 
-### Exercise 1.6b — Pattern matching event processor
+- `BookAdded` asText contains the title
+- `BookBorrowed` asText contains the member ID and book ID
+- `BookReturned` asText contains the member ID and book ID
 
-Create an `EventProcessor` class with a `String describe(LibraryEvent event)` method
-using a `switch` expression with pattern matching. Tests in `EventProcessorTest.java` —
-one per event type, each asserting a descriptive string.
+### Exercise 1.6b — Event serialiser/deserialiser
 
-Once all cases pass, add a new event type `MemberRegistered(MemberId memberId, String name)`
-to the sealed interface's `permits` list. **Don't** add it to the `switch` yet — try
-compiling. See what the compiler tells you. Then add the case and a test.
+Create an `EventSerializer` with a `String serialize(LibraryEvent event)` method that
+converts events to a pipe-delimited string format. Create an `EventDeserializer` with a
+`LibraryEvent deserialize(String raw)` method that parses them back. Both use exhaustive
+switch. Tests in `EventSerializerTest.java`:
 
-### Exercise 1.6c — Pattern matching with instanceof
+Serialiser:
+- `BookAdded` serialises to `BOOK_ADDED|bookId|title|author`
+- `BookBorrowed` serialises to `BOOK_BORROWED|memberId|bookId`
+- `BookReturned` serialises to `BOOK_RETURNED|memberId|bookId`
 
-Write a test that:
-1. Has a `List<LibraryEvent>` containing mixed event types.
-2. Uses pattern matching `instanceof` in a loop to count how many events are borrow events.
-3. Uses a `when` guard in a switch to handle `BookBorrowed` differently based on the member.
+Deserialiser:
+- `BOOK_ADDED|...` string deserialises to a `BookAdded` record with correct fields
+- `BOOK_BORROWED|...` string deserialises to a `BookBorrowed` record
+- Round-trip: serialise then deserialise produces an equal event
+
+**Hints:**
+- `String.split("\\|")` splits on pipe (pipe is a regex special char, needs escaping)
+- `String.join("|", parts)` joins with pipe
+- The deserialiser can switch on the first element of the split array (the tag string)
+
+### Exercise 1.6c — Compiler-enforced exhaustiveness
+
+Add `MemberRegistered(MemberId memberId, String name)` to the sealed interface's `permits`
+list. **Don't** update the serialiser or deserialiser yet — try compiling. See what the
+compiler tells you. Then add the missing cases and tests.
 
 ---
 
@@ -768,7 +784,7 @@ in each section, your library code should now have:
 - [ ] `Book` record with title/author validation and `BookGenre` (1.2, 1.5)
 - [ ] `LoanStatus` enum with state machine transitions (1.5)
 - [ ] `Searchable` interface with default method on `Book` (1.4)
-- [ ] `LibraryEvent` sealed hierarchy with pattern-matching processor (1.6)
+- [ ] `LibraryEvent` sealed hierarchy with `asText()` and serialiser/deserialiser (1.6)
 - [ ] `Result<T>` generic type (1.7)
 - [ ] `Optional`-returning repository methods (1.8)
 - [ ] `LendingService` refactored to use typed IDs and `Optional` lookups (1.1, 1.8)
