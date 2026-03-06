@@ -121,8 +121,9 @@ build independently, using Claude Code as a resource when needed.
 - **Domain exercise:** `LibraryEvent` sealed hierarchy with pattern-matching event processor
 
 ### 1.7 Generics: Writing Your Own
-- Writing generic classes/interfaces/methods, type erasure
+- Writing generic classes/interfaces/methods
 - Bounded types: `<T extends Comparable<T>>`
+- **TypeScript comparison:** syntax is nearly identical (`<T>` in both), but Java erases generic types at runtime (type erasure) — you can't do `if (x instanceof List<String>)` like you can with TS type guards. Bounded types (`<T extends Foo>`) map to TS constraints (`<T extends Foo>`), but Java also has wildcard types (`? extends`, `? super`) with no direct TS equivalent
 - **Domain exercise:** generic `Result<T>` type with `Success`/`Failure` states
 
 ### 1.8 Null Safety & Optional
