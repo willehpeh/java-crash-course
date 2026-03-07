@@ -674,6 +674,9 @@ This is similar to TS's `Result<T, E>`. Create a `sealed interface Result<T>` wi
   using pattern matching on `this`, or declare them `abstract` and implement in each record.
 - `Function<T, U>` is Java's built-in functional interface: takes `T`, returns `U`.
   Apply it with `.apply(value)`.
+- `map` returns a `Result<U>`, not a `Result<T>` — the output type changes. Since `U`
+  isn't declared on the interface, you need to declare it on the method itself. Remember
+  the generic method syntax from the Read First section: `<U>` goes before the return type.
 
 ### Exercise 1.7b — Type erasure exploration
 
