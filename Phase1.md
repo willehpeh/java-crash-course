@@ -609,7 +609,7 @@ Deserialiser:
 Each event should have a `String asText()` method — add it to the `LibraryEvent` interface.
 Tests in `LibraryEventTest.java`:
 
-- `BookAdded` asText contains the title
+- `BookAdded` asText contains the book ID, title, and author
 - `BookBorrowed` asText contains the member ID and book ID
 - `BookReturned` asText contains the member ID and book ID
 
