@@ -1,4 +1,4 @@
-package org.example;
+package org.example.lending;
 
 import org.junit.jupiter.api.Test;
 

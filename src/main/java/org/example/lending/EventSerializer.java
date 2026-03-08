@@ -1,7 +1,6 @@
 package org.example.lending;
 
 import org.example.book.BookId;
-import org.example.MemberId;
 
 public class EventSerializer {
 

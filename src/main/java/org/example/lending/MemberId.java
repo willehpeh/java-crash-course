@@ -1,4 +1,4 @@
-package org.example;
+package org.example.lending;
 
 public record MemberId(String value) {
     public MemberId {

@@ -1,12 +1,9 @@
 package org.example.loan;
 
 import org.example.book.BookId;
-import org.example.MemberId;
+import org.example.lending.MemberId;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class InMemoryLoanRepository implements LoanRepository {
 
@@ -30,5 +27,13 @@ public class InMemoryLoanRepository implements LoanRepository {
     @Override
     public boolean isBookOnLoan(BookId bookId) {
         return loans.values().stream().anyMatch(books -> books.contains(bookId));
+    }
+
+    @Override
+    public Optional<MemberId> borrowerOfBook(BookId bookId) {
+        return loans.entrySet().stream()
+                .filter(entry -> entry.getValue().contains(bookId))
+                .map(Map.Entry::getKey)
+                .findFirst();
     }
 }

@@ -3,7 +3,6 @@ package org.example.lending;
 import org.example.book.BookId;
 import org.example.loan.InMemoryLoanRepository;
 import org.example.loan.LoanRepository;
-import org.example.MemberId;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,7 +37,7 @@ public class LendingServiceTest {
         var memberId = new MemberId("member1");
         var bookId = new BookId("book1");
         service.borrowBook(memberId, bookId);
-        service.returnBook(memberId, bookId);
+        service.returnBook(bookId);
 
         assertThat(loanRepository.findBooksByMember(memberId)).isEmpty();
     }
@@ -52,7 +51,7 @@ public class LendingServiceTest {
 
     @Test
     void shouldNotReturnBookNotOnLoan() {
-        assertThatThrownBy(() -> service.returnBook(new MemberId("member1"), new BookId("book1")));
+        assertThatThrownBy(() -> service.returnBook(new BookId("book1")));
     }
 
     @Test

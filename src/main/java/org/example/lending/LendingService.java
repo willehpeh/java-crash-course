@@ -2,7 +2,6 @@ package org.example.lending;
 
 import org.example.book.BookId;
 import org.example.loan.LoanRepository;
-import org.example.MemberId;
 
 import java.util.List;
 
@@ -30,7 +29,8 @@ public class LendingService {
         return loanRepository.findBooksByMember(memberId);
     }
 
-    public void returnBook(MemberId memberId, BookId bookId) {
-        loanRepository.delete(memberId, bookId);
+    public void returnBook(BookId bookId) {
+        MemberId borrower = loanRepository.borrowerOfBook(bookId).orElseThrow();
+        loanRepository.delete(borrower, bookId);
     }
 }

@@ -1,9 +1,10 @@
 package org.example.loan;
 
 import org.example.book.BookId;
-import org.example.MemberId;
+import org.example.lending.MemberId;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface LoanRepository {
     void save(MemberId memberId, BookId bookId);
@@ -13,4 +14,6 @@ public interface LoanRepository {
     List<BookId> findBooksByMember(MemberId memberId);
 
     boolean isBookOnLoan(BookId bookId);
+
+    Optional<MemberId> borrowerOfBook(BookId bookId);
 }

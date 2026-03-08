@@ -1,7 +1,7 @@
 package org.example.loan;
 
 import org.example.book.BookId;
-import org.example.MemberId;
+import org.example.lending.MemberId;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,5 +47,18 @@ public class InMemoryLoanRepositoryTest {
         repository.delete(memberId, bookId);
         assertThat(repository.findBooksByMember(memberId)).isEmpty();
         assertThat(repository.isBookOnLoan(bookId)).isFalse();
+    }
+
+    @Test
+    void shouldFindBorrowerOfBook() {
+        var memberId = new MemberId("member1");
+        var bookId = new BookId("book1");
+        repository.save(memberId, bookId);
+        assertThat(repository.borrowerOfBook(bookId).orElseThrow()).isEqualTo(memberId);
+    }
+
+    @Test
+    void shouldReturnEmptyWhenBookIsNotOnLoan() {
+        assertThat(repository.borrowerOfBook(new BookId("book1"))).isEmpty();
     }
 }

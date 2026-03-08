@@ -1,7 +1,7 @@
 package org.example.loan;
 
 import org.example.book.BookId;
-import org.example.MemberId;
+import org.example.lending.MemberId;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
