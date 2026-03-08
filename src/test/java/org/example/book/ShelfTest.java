@@ -11,10 +11,7 @@ public class ShelfTest {
 
     static final Book prideAndPrejudice = Book.of("Pride and Prejudice", "Jane Austen");
     static final Book emma = Book.of("Emma", "Jane Austen");
-    static final Book nineteenEightyFour = Book.of("Nineteen Eighty-Four", "George Orwell");
     static final Book sapiens = Book.of("Sapiens", "Yuval Noah Harari");
-    static final Book educatedMemoir = Book.of("Educated", "Tara Westover");
-    static final Book oxfordDictionary = Book.of("Oxford English Dictionary", "Oxford University Press");
 
     @Test
     void shouldBeEmpty() {
