@@ -322,7 +322,13 @@ pipeline one at a time.
 | `.reduce(identity, accumulator)` | Fold elements into one value | `T` |
 | `.min(comparator)` / `.max(comparator)` | Smallest/largest element | `Optional<T>` |
 
-**Collectors** — the power tools:
+**Collectors** — the power tools (and why `reduce` isn't):
+
+In TypeScript, `reduce` is the Swiss army knife — you use it for grouping, counting,
+building objects, joining strings. In Java, `Collectors` provides purpose-built operations
+for all of those. `reduce` still exists for folding into a single value (sums, products),
+but reach for a `Collector` first — it's more readable and handles mutable accumulation
+(like building a `Map`) more efficiently than `reduce` can.
 
 ```java
 // Group books by genre → Map<BookGenre, List<Book>>
