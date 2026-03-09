@@ -57,6 +57,10 @@ public class Book implements Searchable, Displayable {
         return id;
     }
 
+    public BookGenre genre() {
+        return genre;
+    }
+
     public String genreDisplayName() {
         return genre.displayName();
     }

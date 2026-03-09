@@ -443,11 +443,11 @@ varied titles. Use `@BeforeEach` to set up the catalog.
 
 Query methods and their tests:
 
-1. **`List<Book> byAuthor(String author)`** — all books by the given author, sorted by title
+1. **`List<Book> booksBy(String author)`** — all books by the given author, sorted by title
    - Assert correct books returned for a known author
    - Assert empty list for an unknown author
 
-2. **`List<Book> byGenre(BookGenre genre)`** — all books of the given genre
+2. **`List<Book> booksWithGenre(BookGenre genre)`** — all books of the given genre
    - Assert correct count and contents for each genre
 
 3. **`Map<BookGenre, List<Book>> groupedByGenre()`** — all books grouped by genre
