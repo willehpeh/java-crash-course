@@ -14,12 +14,11 @@ public final class TestBooks {
 
     public static final Book oxfordDictionary = Book.of("Oxford English Dictionary", "Oxford University Press", BookGenre.REFERENCE);
     public static final Book merriamWebster = Book.of("Merriam-Webster's Dictionary", "Merriam-Webster", BookGenre.REFERENCE);
-    public static final Book chicagoManualOfStyle = Book.of("The Chicago Manual of Style", "University of Chicago Press", BookGenre.REFERENCE);
 
     public static final List<Book> allBooks = List.of(
             prideAndPrejudice, emma, nineteenEightyFour,
             sapiens, educated, thinkingFastAndSlow,
-            oxfordDictionary, merriamWebster, chicagoManualOfStyle
+            oxfordDictionary, merriamWebster
     );
 
     private TestBooks() {}
