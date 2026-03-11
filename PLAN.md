@@ -179,42 +179,50 @@ build independently, using Claude Code as a resource when needed.
 
 ## Phase 3 — Error Handling, I/O & Serialization
 
+> **Narrative:** Build a file-based repository implementation for the library. This
+> naturally requires I/O, Jackson serialization, and exception handling for edge cases
+> (corrupt files, missing data). All three sub-topics serve one domain goal.
+
 ### 3.1 Exception Handling
 - **Tests:** `assertThrows` + `assertThatThrownBy` (AssertJ) to verify exception behavior
 - Checked vs unchecked exceptions — the biggest Java-specific concept
-  - Checked (`Exception`): compiler forces you to catch or declare `throws`. Used for recoverable conditions.
+  - Checked (`Exception`): compiler forces you to catch or declare `throws`. Used for recoverable conditions (I/O failures, parse errors).
   - Unchecked (`RuntimeException`): no compiler enforcement. Used for programming errors and business rule violations.
 - `throws` declarations — part of the method signature contract
-- When to use which: most modern Java (and this course) prefers unchecked for domain exceptions
-- Custom exception classes — `BookNotFoundException extends RuntimeException`
-- Try-with-resources: `try (var reader = Files.newBufferedReader(path)) { ... }` — auto-closes resources (≈ C# `using`)
-- Exception chaining — `throw new ServiceException("msg", cause)`
-- **Watch out:** checked exceptions will feel annoying coming from TS/C#. They exist for a reason, but you'll mostly write unchecked ones.
+- When to use which: most modern Java (and this course) prefers unchecked for domain exceptions. You already throw `IllegalStateException` — that's the right instinct.
+- `Result<T>` vs exceptions — when does each approach make sense? You already have `Result<T>` for expected domain outcomes. Exceptions are for unexpected failures (I/O errors, corrupt data).
+- **Checked exceptions inside lambdas** — the real TS→Java gotcha. `stream.map(item -> methodThatThrowsChecked(item))` doesn't compile. How to handle: wrap in unchecked, extract method, or use a helper.
+- Try-with-resources: `try (var reader = Files.newBufferedReader(path)) { ... }` — auto-closes `AutoCloseable` resources (≈ C# `using`). Belongs here because it shows up immediately in 3.2.
+- Exception chaining — `throw new ServiceException("msg", cause)` — preserving the original stack trace
+- **Watch out:** checked exceptions will feel annoying coming from TS/C#. They exist for a reason, but you'll mostly write unchecked ones. The pain point is when they show up inside streams.
 
 ### 3.2 I/O with `java.nio`
 - **Tests:** use JUnit 5's `@TempDir` for test isolation — write/read files, assert contents
 - `Path` and `Files` — the modern API (ignore legacy `java.io.File`)
 - Reading: `Files.readString()`, `Files.readAllLines()`, `Files.newBufferedReader()`
 - Writing: `Files.writeString()`, `Files.write()`, `Files.newBufferedWriter()`
-- Walking directories: `Files.walk()`, `Files.list()` — return Streams
+- Walking directories: `Files.walk()`, `Files.list()` — return Streams (tie-in to Phase 2)
 - Try-with-resources for anything that opens a handle
 - `InputStream`/`OutputStream` — byte-level; `Reader`/`Writer` — character-level (brief, for when you encounter them)
+- **Domain exercise:** read/write library data to files using `@TempDir` — this feeds directly into the capstone
 
 ### 3.3 Serialization with Jackson
-- **Tests:** serialize `Book` records to JSON and back; assert round-trip fidelity
+- **Tests:** serialize domain objects to JSON and back; assert round-trip fidelity
 - Add Jackson dependency to `pom.xml`
 - `ObjectMapper` — the central API
 - Serializing: `mapper.writeValueAsString(book)` → JSON string
 - Deserializing: `mapper.readValue(json, Book.class)` → object
-- Records + Jackson = clean DTOs with zero boilerplate
+- **`Book` is a class with a private constructor and static factories** — Jackson needs `@JsonCreator` to work with this. Records work out of the box, classes with restricted constructors don't.
 - `@JsonProperty`, `@JsonIgnore`, `@JsonCreator` — when defaults aren't enough
-- **Watch out:** Jackson needs a no-arg constructor OR `@JsonCreator` for classes. Records work out of the box.
+- **Sealed interfaces + Jackson:** polymorphic serialization of `LibraryEvent` hierarchy using `@JsonTypeInfo` and `@JsonSubTypes`. You already have `EventSerializer` — extend it to use Jackson instead of manual serialization.
+- **Watch out:** Jackson errors at runtime, not compile time. A missing `@JsonCreator` or wrong `@JsonTypeInfo` will blow up on the first deserialization attempt.
 
 ### 3.4 Capstone — File-Based Persistence
-- **Tests:** implement `FileBookRepository implements BookRepository` — saves/loads books as JSON files
-- Uses the same `BookRepository` interface from Phase 1
+- **Tests:** implement `FileLoanRepository implements LoanRepository` — saves/loads loan data as JSON files
+- Uses the same `LoanRepository` interface you already have
 - Tests use `@TempDir` for isolation
-- The Detroit-school payoff: your existing tests for `InMemoryBookRepository` can be extracted into an **interface contract test** that runs against both implementations
+- Handle edge cases: corrupt JSON file, missing file, empty file
+- The Detroit-school payoff: extract your existing `InMemoryLoanRepository` tests into an **interface contract test** that runs against both implementations — same tests, two implementations, verified identical behavior
 
 ---
 
@@ -224,32 +232,35 @@ build independently, using Claude Code as a resource when needed.
 - JS/TS: single-threaded event loop, everything is non-blocking by convention
 - Java: real OS threads, true parallelism, shared mutable state
 - The fundamental problem: two threads writing to the same variable
+- **Immutability as a concurrency strategy** — your existing design preferences (records, final fields, unmodifiable collections) already make objects thread-safe. This section connects that intuition to the concurrency model.
 
 ### 4.2 Threading Fundamentals
 - **Tests:** use `CountDownLatch`, `CyclicBarrier` to coordinate threads in tests
-- `Thread` and `Runnable` — creating threads
+- `Thread` and `Runnable` — brief conceptual overview (you won't create raw threads in practice)
 - `synchronized` blocks and methods — mutual exclusion
 - `volatile` — visibility guarantee across threads
 - `Atomic*` types: `AtomicInteger`, `AtomicReference` — lock-free thread safety
 - Thread-safe collections: `ConcurrentHashMap`, `CopyOnWriteArrayList`
+- **Domain exercise:** `InMemoryLoanRepository` uses `HashMap` — not thread-safe. `LendingService.borrowBook()` has a check-then-act race condition (check `isBookOnLoan`, then `save`). Discover and fix these through tests that expose the race.
 - **Watch out:** race conditions are silent and intermittent. Tests might pass 99% of the time.
 
 ### 4.3 `java.util.concurrent`
 - **Tests:** `CompletableFuture` chains, assert composed results
-- `ExecutorService` and thread pools — never create raw threads in production
+- `ExecutorService` and thread pools — the standard way to run work concurrently
 - `Executors.newFixedThreadPool()`, `.newCachedThreadPool()`
 - `Future<T>` — submit work, get result later (blocking `.get()`)
 - `CompletableFuture<T>` (≈ `Promise<T>`)
   - `.supplyAsync()`, `.thenApply()` (≈ `.then()`), `.thenCompose()` (≈ `.then()` returning Promise)
   - `.exceptionally()` (≈ `.catch()`), `.handle()`, `.thenCombine()`
   - `CompletableFuture.allOf()` (≈ `Promise.all()`)
+- **Domain exercise:** parallel catalog searches or concurrent loan report generation
 - **Contrast with Promises:** Promises auto-schedule on microtask queue. CompletableFuture runs on an executor you choose.
 
-### 4.4 Virtual Threads (Project Loom — Java 21+)
+### 4.4 Virtual Threads (Java 21+)
 - **Tests:** spawn thousands of virtual threads, aggregate results, assert correctness
 - `Thread.ofVirtual().start(runnable)` — lightweight, JVM-managed threads
 - `Executors.newVirtualThreadPerTaskExecutor()` — drop-in replacement for thread pools
-- Structured concurrency (preview): `StructuredTaskScope` — scope-bound thread management
+- Structured concurrency (`StructuredTaskScope`) — scope-bound thread management. Worth knowing about; API may still evolve.
 - Why this changes everything: one-thread-per-request is viable again, no need for reactive frameworks
 - **Watch out:** virtual threads are cheap to create but still share mutable state. Thread safety still applies.
 

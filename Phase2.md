@@ -508,35 +508,24 @@ Methods and tests:
 through `catalog.findById()`. Think about what to do when a `BookId` isn't in the catalog
 — `flatMap` with `Optional::stream` is the idiomatic way to silently drop missing entries.
 
-### Exercise 2.4c — Putting it together
-
-Write a test that exercises a full workflow:
-
-1. Create a catalog, a repository, a `LendingService`, and a `LoanReporter`
-2. Borrow some books via `LendingService`
-3. Assert the reporter's `summary()` contains the right data
-4. Return a book, assert the summary updated
-
-All real objects, no mocks.
-
 ---
 
 ## Review
 
 After completing Phase 2, your library should have:
 
+- [ ] `Shelf` with static factories and `TreeSet`-backed sorted storage
 - [ ] `Catalog` with stream-based search, filter, group, and lookup operations
-- [ ] `LoanReport` with aggregate loan data using streams and collectors
-- [ ] `BookMatcher` functional interface with composition
-- [ ] Familiarity with `Comparator.comparing()` for sorting
-- [ ] Comfort with `filter`, `map`, `flatMap`, `collect`, `groupingBy`, `reduce`
-- [ ] Understanding of `Predicate`, `Function`, `Consumer`, `Supplier`
+- [ ] `LoanReporter` with aggregate loan data using streams and collectors
+- [ ] `TestBooks` fixture class for reusable test data
+- [ ] Familiarity with `Comparator.comparing()` and `thenComparing()` for sorting
+- [ ] Comfort with `filter`, `map`, `flatMap`, `collect`, `groupingBy`
+- [ ] Understanding of `Optional::stream` for safe flatMap patterns
 - [ ] All tests passing
 
 **Consider:**
-1. How do Java streams compare to RxJS pipes? What's missing? (Answer: async,
-   backpressure, multicasting, error channels. Streams are simpler by design.)
+1. How do Java streams compare to RxJS/TS array methods? (Answer: streams are lazy
+   and single-use. TS arrays are eager — each `.filter()` / `.map()` creates a new array.)
 2. Where did `flatMap` show up, and why couldn't `map` do the job?
-3. When would you use `Predicate<Book>` vs `BookMatcher`? Is the extra type worth it?
-4. Look at your `Catalog` methods — could any of them be expressed as a single
-   `default` method on a new interface? (Don't do it — just notice the option.)
+3. What did the `TreeSet` comparator-equality gotcha teach you about Java's
+   collection contracts?
