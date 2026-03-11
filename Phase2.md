@@ -494,12 +494,15 @@ Methods and tests:
 
 2. **`Map<BookGenre, Long> loanCountByGenre()`** — across all loans, how many books
    of each genre are out
-   - This requires getting all loans, resolving book IDs to books, then grouping
+   - You'll need a new method on `LoanRepository` (and `InMemoryLoanRepository`) to
+     get all borrowed book IDs
+   - Resolve those to books via the catalog, then group by genre
    - Assert the genre distribution
 
-3. **`String summary()`** — a human-readable summary (the object owns its representation)
-   - Should include total books on loan and the per-genre breakdown
-   - Assert the summary contains expected text fragments
+3. **`Optional<BookGenre> mostPopularGenre()`** — the genre with the most books on loan
+   - Build on `loanCountByGenre()` — stream its entries, find the max by value
+   - Returns empty if nothing is on loan
+   - Ensure the test fixture has uneven genre counts so the result is unambiguous
 
 **Hint:** For `booksOnLoanTo`, you'll need all borrowed `BookId`s, then `.map()` each
 through `catalog.findById()`. Think about what to do when a `BookId` isn't in the catalog

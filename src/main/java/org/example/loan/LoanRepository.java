@@ -16,4 +16,6 @@ public interface LoanRepository {
     boolean isBookOnLoan(BookId bookId);
 
     Optional<MemberId> borrowerOfBook(BookId bookId);
+
+    List<BookId> allBooksOnLoan();
 }

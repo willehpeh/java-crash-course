@@ -36,4 +36,11 @@ public class InMemoryLoanRepository implements LoanRepository {
                 .map(Map.Entry::getKey)
                 .findFirst();
     }
+
+    @Override
+    public List<BookId> allBooksOnLoan() {
+        return loans.values().stream()
+                .flatMap(List::stream)
+                .toList();
+    }
 }
