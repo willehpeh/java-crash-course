@@ -438,8 +438,9 @@ Create `src/main/java/org/example/book/Catalog.java`. A `Catalog` holds a collec
 `Book` objects and provides query methods. Constructor takes a `List<Book>`. Tests in
 `src/test/java/org/example/book/CatalogTest.java`.
 
-Build a test fixture with 8-10 books spanning all three genres, multiple authors, and
-varied titles. Use `@BeforeEach` to set up the catalog.
+Build a test fixture class (`TestBooks`) with 8-10 books spanning all three genres,
+multiple authors, and varied titles. Use uneven numbers per genre so that counting
+tests are meaningful. Use `@BeforeEach` or a field initialiser to set up the catalog.
 
 Query methods and their tests:
 
@@ -450,12 +451,12 @@ Query methods and their tests:
 2. **`List<Book> booksWithGenre(BookGenre genre)`** — all books of the given genre
    - Assert correct count and contents for each genre
 
-3. **`Map<BookGenre, List<Book>> groupedByGenre()`** — all books grouped by genre
+3. **`Map<BookGenre, List<Book>> booksGroupedByGenre()`** — all books grouped by genre
    - Assert all genres present as keys
    - Assert correct books in each group
 
 4. **`Map<BookGenre, Long> countByGenre()`** — count of books per genre
-   - Assert counts match
+   - Assert counts match (uneven genre sizes make this test meaningful)
 
 5. **`List<Book> search(String query)`** — books matching the query (use the `Searchable`
    interface you built in Phase 1)
@@ -465,11 +466,14 @@ Query methods and their tests:
    - Assert empty result for non-matching query
 
 6. **`Optional<Book> findById(BookId id)`** — look up a single book
-   - Assert found for a known ID
+   - Assert found for a known ID — AssertJ's `assertThat(optional).contains(value)`
+     works directly on `Optional`
    - Assert empty for an unknown ID
 
 **Hint:** Each method should be a one-liner stream pipeline internally. The `Catalog` is
-a good place to see how streams replace what would be loops in imperative code.
+a good place to see how streams replace what would be loops in imperative code. Prefer
+asking the book a question (`book.hasGenre(genre)`, `book.matches(query)`) over
+extracting its fields and comparing externally.
 
 ### Exercise 2.4b — Loan reporting
 
