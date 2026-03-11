@@ -477,19 +477,18 @@ extracting its fields and comparing externally.
 
 ### Exercise 2.4b — Loan reporting
 
-Create `src/main/java/org/example/loan/LoanReport.java`. A `LoanReport` takes a
-`LoanRepository` and a `Catalog`, and generates aggregate data about current loans.
-Tests in `src/test/java/org/example/loan/LoanReportTest.java`.
+Extend `LendingService` to support reporting. It already has the `LoanRepository` — add
+a `Catalog` as a second dependency so it can resolve `BookId`s to `Book` objects.
+Tests in `src/test/java/org/example/lending/LendingServiceReportingTest.java`.
 
-Set up a test fixture: populate the `InMemoryLoanRepository` with several loans across
-multiple members, and a `Catalog` with the corresponding books.
+Set up a test fixture: create a `LendingService` with an `InMemoryLoanRepository` and
+a `Catalog` built from `TestBooks`. Borrow several books across multiple members.
 
-Methods and tests:
+New methods and their tests:
 
 1. **`List<Book> booksOnLoanTo(MemberId memberId)`** — the actual `Book` objects
    (not just IDs) currently on loan to a member
-   - Uses `repository.findBooksByMember()` then maps each `BookId` to a `Book` via
-     the catalog
+   - Resolves each `BookId` from `loansFor()` to a `Book` via the catalog
    - Assert correct books returned
 
 2. **`Map<BookGenre, Long> loanCountByGenre()`** — across all loans, how many books
@@ -497,11 +496,11 @@ Methods and tests:
    - This requires getting all loans, resolving book IDs to books, then grouping
    - Assert the genre distribution
 
-3. **`String summary()`** — a human-readable summary (the object owns its representation)
+3. **`String loanSummary()`** — a human-readable summary
    - Should include total books on loan and the per-genre breakdown
    - Assert the summary contains expected text fragments
 
-**Hint:** For `booksOnLoanTo`, you'll need all borrowed `BookId`s, then `.map()` each
+**Hint:** For `booksOnLoanTo`, you'll need the borrowed `BookId`s, then `.map()` each
 through `catalog.findById()`. Think about what to do when a `BookId` isn't in the catalog
 — `flatMap` with `Optional::stream` is the idiomatic way to silently drop missing entries.
 
@@ -509,13 +508,12 @@ through `catalog.findById()`. Think about what to do when a `BookId` isn't in th
 
 Write a test that exercises a full workflow:
 
-1. Create a catalog with several books
-2. Borrow some books via `LendingService`
-3. Generate a `LoanReport` and assert its summary contains the right data
-4. Return a book, regenerate the report, assert it updated
+1. Create a `LendingService` with a catalog and repository
+2. Borrow some books
+3. Assert `loanSummary()` contains the right data
+4. Return a book, assert the summary updated
 
-This test uses `LendingService`, `InMemoryLoanRepository`, `Catalog`, and `LoanReport`
-together — all real objects, no mocks.
+All real objects, no mocks.
 
 ---
 
