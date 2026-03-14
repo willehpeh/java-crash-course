@@ -413,14 +413,17 @@ Create `src/test/java/org/example/JacksonTest.java`. Explore Jackson basics.
      formatted JSON. Assert it contains newlines.
 
 **Hint:** Create the `ObjectMapper` once as a field. Records need zero configuration.
+Jackson's `writeValueAsString()` and `readValue()` throw `JsonProcessingException` — a
+checked exception. Declare `throws JsonProcessingException` on your test methods (same
+pattern as `throws IOException` in the I/O tests). Import from `com.fasterxml.jackson.core`.
 
 ### Exercise 3.3b — Book serialization (class with private constructor)
 
 This is the exercise where Jackson's defaults stop working. Add tests to `JacksonTest.java`
 or create a separate `BookSerializationTest.java`.
 
-1. **Attempt to deserialize a `Book` without `@JsonCreator`.** What happens? (You'll get
-   an `InvalidDefinitionException` — Jackson can't find a way to construct the object.)
+1. **Attempt to serialize a `Book` without any Jackson annotations.** What happens?
+   Jackson can't see the package-private accessors — you'll get an error or empty JSON.
 
 2. **Add `@JsonCreator` and `@JsonProperty` annotations** to `Book.java`:
    - Annotate the 4-argument `of(BookId, String, String, BookGenre)` factory with
