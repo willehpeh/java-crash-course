@@ -310,7 +310,7 @@ You'll add it as a Maven dependency and use it to serialize your domain objects.
 <dependency>
     <groupId>com.fasterxml.jackson.core</groupId>
     <artifactId>jackson-databind</artifactId>
-    <version>2.18.2</version>
+    <version>2.21.1</version>
 </dependency>
 ```
 
