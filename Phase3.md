@@ -445,8 +445,32 @@ parameters to map JSON keys. For serialization, Jackson needs to *read* the valu
 out — it'll look for getters, public fields, or `@JsonProperty`-annotated methods. Think
 about which of Book's accessors are currently public vs package-private.
 
-**Watch out:** Don't annotate every `of()` overload — just the one with all fields.
-Jackson only needs one path in and one path out.
+**Watch out — two Jackson gotchas you'll hit:**
+
+1. **`@JsonCreator` without `@JsonProperty` on parameters:** If you put `@JsonCreator` on
+   the factory method but forget the `@JsonProperty` annotations on each parameter, Jackson
+   treats it as a *delegating creator* — meaning it expects a single argument representing
+   the entire JSON value. With 4 unannotated parameters, you'll get:
+   `InvalidDefinitionException: More than one argument left as delegating for Creator`.
+   The fix: add `@JsonProperty("fieldName")` to every parameter.
+
+2. **`isLongLoan()` leaks into JSON:** Jackson treats any public `is*()` method as a
+   boolean property (JavaBean convention). So `isLongLoan()` produces a `"longLoan"` field
+   during serialization. On deserialization, Jackson finds `"longLoan"` in the JSON but has
+   no matching constructor parameter — `UnrecognizedPropertyException`. Fix it with
+   `@JsonIgnore` on the method. Alternative approaches:
+   - `@JsonAutoDetect(isGetterVisibility = Visibility.NONE)` on the class — disables
+     `is*()` auto-detection entirely
+   - Configure the `ObjectMapper` globally:
+     `mapper.setVisibility(PropertyAccessor.IS_GETTER, Visibility.NONE)`
+   - Use `@JsonIgnoreProperties("longLoan")` on the class
+
+   The `@JsonIgnore` approach is simplest for one-off cases. The visibility approaches are
+   better when you have many derived methods you want to keep out of serialization — they
+   let you opt *in* to what gets serialized rather than opting *out* method by method.
+
+Don't annotate every `of()` overload — just the one with all fields. Jackson only needs
+one path in and one path out.
 
 ### Exercise 3.3c — Sealed interface serialization (LibraryEvent)
 
