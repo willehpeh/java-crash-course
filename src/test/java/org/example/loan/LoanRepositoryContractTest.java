@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public abstract class LoanRepositoryContractTest {
 
-    private LoanRepository repository;
+    protected LoanRepository repository;
 
     abstract LoanRepository createRepository();
 
