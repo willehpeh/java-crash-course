@@ -59,6 +59,5 @@ public class FileIOTest {
         try (var files = Files.list(tempDir)) {
             assertThat(files.filter(path -> path.getFileName().toString().endsWith(".json"))).hasSize(1);
         }
-        ;
     }
 }
