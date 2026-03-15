@@ -40,7 +40,7 @@ public class FileLoanRepository implements LoanRepository {
             return objectMapper.readValue(json, new TypeReference<>() {
             });
         } catch (IOException e) {
-            throw new LoanPersistenceException("Failed to save loan", e);
+            throw new LoanPersistenceException("Failed to read loan file", e);
         }
     }
 
@@ -62,7 +62,10 @@ public class FileLoanRepository implements LoanRepository {
     @Override
     public void delete(MemberId memberId, BookId bookId) {
         Map<String, List<String>> map = loans();
-        map.getOrDefault(memberId.value(), List.of()).remove(bookId.value());
+        map.computeIfPresent(memberId.value(), (_, books) -> {
+            books.remove(bookId.value());
+            return books;
+        });
         saveLoans(map);
     }
 
