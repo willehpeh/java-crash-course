@@ -164,15 +164,28 @@ var done = new CountDownLatch(threadCount);  // completion signal
 
 for (int i = 0; i < threadCount; i++) {
     new Thread(() -> {
-        latch.await();    // all threads block here
-        // do the concurrent work
-        done.countDown(); // signal completion
+        try {
+            latch.await();    // all threads block here
+            // do the concurrent work
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            done.countDown(); // signal completion — always, even if work throws
+        }
     }).start();
 }
 
 latch.countDown();  // open the gate — all threads start simultaneously
 done.await();       // wait for all to finish
 ```
+
+**Checked exceptions inside lambdas:** `latch.await()` throws `InterruptedException`, which
+is a checked exception. Normally you'd add `throws InterruptedException` to the method
+signature — but here the lambda targets `Runnable`, whose `run()` method doesn't declare any
+checked exceptions. You *must* catch it inside the lambda. The `Thread.currentThread().interrupt()`
+re-sets the interrupt flag so callers further up know the thread was interrupted — this is
+the standard idiom. The outer `done.await()` on the test method *can* use `throws
+InterruptedException` because it's directly in the test method body, not inside a lambda.
 
 This pattern maximises the chance of threads colliding on the critical section. Without the
 latch, threads start sequentially and the race window is tiny.

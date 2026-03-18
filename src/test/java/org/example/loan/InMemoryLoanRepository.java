@@ -4,19 +4,29 @@ import org.example.book.BookId;
 import org.example.lending.MemberId;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class InMemoryLoanRepository implements LoanRepository {
 
-    private final Map<MemberId, List<BookId>> loans = new HashMap<>();
+    private final ConcurrentHashMap<MemberId, List<BookId>> loans = new ConcurrentHashMap<>();
 
     @Override
     public void save(MemberId memberId, BookId bookId) {
-        loans.computeIfAbsent(memberId, _ -> new ArrayList<>()).add(bookId);
+        loans.compute(memberId, (_, books) -> {
+            if (books == null) {
+                books = new ArrayList<>();
+            }
+            books.add(bookId);
+            return books;
+        });
     }
 
     @Override
     public void delete(MemberId memberId, BookId bookId) {
-        loans.getOrDefault(memberId, List.of()).remove(bookId);
+        loans.computeIfPresent(memberId, (_, books) -> {
+            books.remove(bookId);
+            return books.isEmpty() ? null : books;
+        });
     }
 
     @Override
