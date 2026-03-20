@@ -269,78 +269,28 @@ build independently, using Claude Code as a resource when needed.
 ## Phase 5 — E-Commerce Project Bootstrap
 
 > **Domain shift.** The Library domain is complete. From here, exercises target the
-> e-commerce platform in a separate repository. Same detailed phase file style — Read First
-> sections, exercises with hints, "watch out" boxes — but all work happens in the e-commerce
-> codebase.
+> e-commerce platform in a separate repository. This phase is deliberately slim — just the
+> project skeleton and build tooling. Everything else (logging, database migrations,
+> observability, architecture tests, `java.time`) gets introduced just-in-time in Phase 6
+> when you have a real reason to need it.
 
 ### 5.1 Multi-Module Gradle
 - **Exercise:** scaffold the e-commerce multi-module project from scratch
 - Root `build.gradle.kts` + `settings.gradle.kts`, Kotlin DSL
 - Version catalog (`gradle/libs.versions.toml`) — central dependency version management
 - Module structure: `common`, `catalog`, `order`, `inventory`, `cart`, `payment`, `search`, `notification`
-- Each module gets its own `build.gradle.kts`, shared config via `subprojects {}`
 - Inter-module dependencies: `implementation(project(":common"))`, etc.
-- Build ordering: Gradle task graph (auto-detects from dependencies)
+- Cross-module test: `catalog` imports a type from `common`, test passes
 - **Watch out:** multi-module dependency cycles are a build error. Design module boundaries carefully up front.
 
 ### 5.2 Architecture Decision Records
 - **Exercise:** write the initial ADR set for the e-commerce project in `docs/adr/`
 - ADR format: Context / Decision / Consequences (keep it simple)
-- Initial ADRs (write when you start the project):
-  - `0001-use-java-25.md`
-  - `0002-use-spring-boot-4.md`
-  - `0003-use-gradle.md`
-  - `0004-unified-observability-with-opentelemetry.md`
+- Initial ADRs: Java 25, Spring Boot 4, Gradle, OpenTelemetry observability strategy
 - Future ADRs written as decisions are made (architecture, CQRS/ES boundaries, event store, etc.)
-- Why ADRs matter: when you revisit a decision in 6 months, the "why" is documented
 
-### 5.3 Logging — SLF4J + Logback
-- **Exercise:** configure structured logging across the e-commerce modules
-- SLF4J as the facade, Logback as the implementation — why the abstraction layer matters
-- `LoggerFactory.getLogger(MyClass.class)` — one logger per class
-- Log levels: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR` — when to use each
-- `logback.xml` / `logback-spring.xml` configuration: appenders, patterns, rolling files
-- MDC (Mapped Diagnostic Context) — adding request IDs, user IDs to every log line
-- **Exercise:** add logging to a service class, configure per-module log levels
-- **Watch out:** never log sensitive data (passwords, tokens, PII). Never use string concatenation in log calls — use parameterized messages: `log.info("Order {} placed", orderId)`.
-
-### 5.4 Database Migrations with Flyway
-- **Exercise:** set up Flyway for the catalog module with an initial schema migration
-- Why migrations: version-controlled, repeatable database changes (≈ EF migrations, ≈ Prisma migrate)
-- Migration naming: `V1__create_product_table.sql`, `V2__add_category_column.sql`
-- Flyway + Spring Boot auto-configuration — migrations run on startup
-- Testcontainers + Flyway — real PostgreSQL in tests, migrations applied automatically
-- Baseline migrations — when you adopt Flyway on an existing database
-- **Watch out:** never edit a migration that has already been applied. Write a new one instead. Flyway checksums will catch you if you try.
-
-### 5.5 ArchUnit — Enforcing Architecture
-- **Exercise:** write ArchUnit rules for the e-commerce project
-- What ArchUnit does: tests that verify your code's structure (package dependencies, naming, annotations)
-- Rules to implement:
-  - Domain model classes must not depend on Spring annotations
-  - No module may depend on another module's internal packages
-  - Controllers live in `*.api` packages, entities in `*.domain`
-  - No `java.util.logging` — enforce SLF4J usage
-- How to write custom rules with the fluent API
-- Running ArchUnit tests — they're just JUnit tests
-- **Watch out:** ArchUnit rules are only as good as you make them. Start with a few critical rules and add more as the codebase grows.
-
-### 5.6 Date & Time API (`java.time`)
-- **Tests:** create, manipulate, format, compare dates and times
-- `LocalDate`, `LocalTime`, `LocalDateTime` — no timezone
-- `ZonedDateTime`, `Instant`, `Duration`, `Period`
-- `DateTimeFormatter` — parsing and formatting
-- Immutable and thread-safe (unlike old `java.util.Date`)
-- **E-commerce context:** order timestamps (`Instant`), promotion date ranges (`LocalDate`), shipping estimates (`Duration`)
-- **Watch out:** nothing like JS `Date`. Much better designed. `LocalDate.now()` gives you today, not a timestamp.
-
-### 5.7 Capstone — Project Skeleton
-- **Exercise:** verify the full multi-module project builds and passes all ArchUnit rules
-- All modules compile, parent POM manages dependencies correctly
-- Flyway migration runs against Testcontainers PostgreSQL
-- ArchUnit rules pass
-- Logging configured and producing output
-- ADRs committed in `docs/adr/`
+### 5.3 Capstone
+- `./gradlew clean build` passes, cross-module dependencies work, ADRs committed
 - The e-commerce project is ready for feature development in Phase 6
 
 ---
@@ -348,8 +298,9 @@ build independently, using Claude Code as a resource when needed.
 ## Phase 6 — Spring Boot & the Catalog Context
 
 > **The Catalog bounded context.** Standard CRUD with Spring Data JPA — deliberately not
-> event-sourced. Same Spring Boot concepts that would have applied to the Library REST API,
-> but targeting the e-commerce domain. Same detailed phase file style.
+> event-sourced. Ecosystem tooling (logging, Flyway, Testcontainers, ArchUnit, `java.time`,
+> OpenTelemetry) is introduced just-in-time as the Catalog context needs it, not as
+> standalone exercises. Same detailed phase file style.
 
 ### 6.1 Core Concepts & Dependency Injection
 - **Tests:** wire up beans with `@SpringBootTest`, assert DI works. Register fakes (e.g., `InMemoryProductRepository`) as beans for testing.
@@ -360,7 +311,14 @@ build independently, using Claude Code as a resource when needed.
 - `@Profile` — swap implementations per environment (e.g., in-memory for tests, Postgres for prod)
 - **Detroit-school approach:** register your `InMemoryProductRepository` as a `@Bean` in test configuration. Real objects, real behavior.
 
-### 6.2 Spring Web — REST APIs
+### 6.2 Domain Model & Value Objects
+- `java.time` introduced here — `Instant` for timestamps, `LocalDate` for date ranges, `Clock` for testable time
+- `Money` value object (`BigDecimal` + `Currency`) — learned when the domain requires prices
+- `DateRange` for promotions — `contains()`, `overlaps()`, `duration()`
+- Product domain model: `Product`, `Category`, `ProductId`
+- **Watch out:** `BigDecimal` comparison — `equals()` considers scale, use `compareTo() == 0`
+
+### 6.3 Spring Web — REST APIs
 - **Tests:** `MockMvc` to test controllers without starting a server. Fakes for the service layer.
 - `@RestController` + `@RequestMapping`
 - `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`
@@ -370,8 +328,10 @@ build independently, using Claude Code as a resource when needed.
 - Input validation: `@Valid` + Jakarta Bean Validation (`@NotNull`, `@Size`, `@Email`, etc.)
 - **E-commerce exercise:** Product CRUD endpoints — create product, get by ID, list by category, update, soft-delete
 
-### 6.3 Spring Data JPA — Catalog Entities
+### 6.4 Spring Data JPA & Flyway
 - **Tests:** `@DataJpaTest` with Testcontainers PostgreSQL — real DB, Flyway migrations applied
+- **Flyway introduced here:** first migration when you need a database table — `V1__create_product_table.sql`
+- **Testcontainers introduced here:** real PostgreSQL in tests, not H2
 - JPA entities: `@Entity`, `@Id`, `@GeneratedValue`, `@Column`
 - Catalog domain model: `Product`, `Category`, `ProductImage`
 - Relationships: `@ManyToOne` (product → category), `@OneToMany` (product → images)
@@ -379,23 +339,38 @@ build independently, using Claude Code as a resource when needed.
 - Query methods by naming convention: `findByCategoryIdAndActiveTrue(UUID categoryId)`
 - Custom queries: `@Query("SELECT p FROM Product p WHERE ...")`
 - **Watch out:** JPA entities need a no-arg constructor (can be `protected`). They are not the same as your domain model — keep them in an infrastructure/persistence package and map to domain objects.
-- **Contrast with TypeORM / Entity Framework:** similar concepts, annotation-driven instead of decorator-driven.
 
-### 6.4 Layered Architecture & Integration Testing
+### 6.5 ArchUnit — Enforcing Architecture
+- **Introduced here:** now that you have real layers (api, domain, persistence), ArchUnit
+  rules have something to enforce
+- Domain must not depend on Spring, JPA, or Jackson annotations
+- No `java.util.logging` — enforce SLF4J usage
+- No field injection (`@Autowired` on fields)
+- Controllers in `..api..` packages, domain classes framework-free
+- **Watch out:** start with a few critical rules. Add more as patterns emerge.
+
+### 6.6 Observability
+- Logback config for ecosystem output (Spring Boot bundles SLF4J + Logback — no manual deps)
+- OpenTelemetry API + SDK — manual instrumentation at service boundaries
+- Wide events: attach business attributes (product ID, category, cache hit/miss) to spans
+- Your own code instruments with OTel spans, not `log.info()` — per ADR 0004
+- Console exporter for development, OTLP exporter for production
+
+### 6.7 Layered Architecture & Integration Testing
 - **Tests:** full integration tests with `@SpringBootTest` + `TestRestTemplate` or `WebTestClient`
 - Controller → Service → Repository — standard layering within the catalog module
 - How Detroit-school testing applies at each layer:
   - **Unit tests:** service with `InMemoryProductRepository` (fake)
   - **Integration tests:** real Spring context, Testcontainers PostgreSQL, actual HTTP calls
   - **Contract tests:** same interface tests run against fake and real repository
-- Testcontainers — real Postgres, not H2. The e-commerce project uses PostgreSQL-specific features (BYTEA, etc.)
 
-### 6.5 Capstone — Catalog API
+### 6.8 Capstone — Catalog API
 - Full CRUD API for products and categories
 - Product listing with filtering (by category, active status, price range)
 - Test pyramid: unit tests (fakes) → integration tests (Testcontainers) → API tests (MockMvc)
 - All driven by TDD from the start
-- Verify ArchUnit rules still pass with the new code
+- ArchUnit rules pass with the new code
+- OTel instrumentation with wide events, Logback configured for ecosystem output
 - The Catalog context is complete and production-shaped — ready to integrate with Order and Inventory contexts later
 
 ---
@@ -492,8 +467,8 @@ Each section follows the Detroit-school TDD cycle:
 | **2** | 1-2 | Collections, lambdas, streams — the functional toolkit |
 | **3** | 1 | Exceptions, I/O, Jackson — file-based persistence |
 | **4** | 1-2 | Concurrency — the big conceptual leap from TS |
-| **5** | 2-3 | E-commerce project bootstrap — Gradle multi-module, Flyway, logging, ArchUnit |
-| **6** | 2-3 | Spring Boot — Catalog bounded context (CRUD, REST, JPA) |
+| **5** | 1 | E-commerce project bootstrap — Gradle multi-module, ADRs |
+| **6** | 3-4 | Spring Boot — Catalog bounded context + ecosystem tooling (logging, Flyway, ArchUnit, OTel) |
 
 **Total: ~10-15 sessions to complete the structured course.**
 After that, you're building independently.
