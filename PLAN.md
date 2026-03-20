@@ -273,29 +273,25 @@ build independently, using Claude Code as a resource when needed.
 > sections, exercises with hints, "watch out" boxes — but all work happens in the e-commerce
 > codebase.
 
-### 5.1 Multi-Module Maven
+### 5.1 Multi-Module Gradle
 - **Exercise:** scaffold the e-commerce multi-module project from scratch
-- Parent POM: `<modules>`, `<dependencyManagement>`, `<pluginManagement>`, properties
-- BOM alignment — ensuring all modules use consistent dependency versions
-- Module structure: `common`, `catalog`, `order`, `inventory`, `cart`, `payment`, `search`, `notification`, `gateway`
-- Each module gets its own `pom.xml` inheriting from the parent
-- Inter-module dependencies: `catalog` depends on `common`, etc.
-- Build ordering: Maven's reactor and `mvn install` vs `mvn verify`
+- Root `build.gradle.kts` + `settings.gradle.kts`, Kotlin DSL
+- Version catalog (`gradle/libs.versions.toml`) — central dependency version management
+- Module structure: `common`, `catalog`, `order`, `inventory`, `cart`, `payment`, `search`, `notification`
+- Each module gets its own `build.gradle.kts`, shared config via `subprojects {}`
+- Inter-module dependencies: `implementation(project(":common"))`, etc.
+- Build ordering: Gradle task graph (auto-detects from dependencies)
 - **Watch out:** multi-module dependency cycles are a build error. Design module boundaries carefully up front.
 
 ### 5.2 Architecture Decision Records
 - **Exercise:** write the initial ADR set for the e-commerce project in `docs/adr/`
 - ADR format: Context / Decision / Consequences (keep it simple)
-- ADRs to write:
+- Initial ADRs (write when you start the project):
   - `0001-use-java-25.md`
   - `0002-use-spring-boot-4.md`
-  - `0003-use-maven.md`
-  - `0004-use-axon-framework-5.md`
-  - `0005-use-jpa-event-store-not-axon-server.md`
-  - `0006-modular-monolith-architecture.md`
-  - `0007-cqrs-es-for-order-and-inventory.md`
-  - `0008-crud-for-catalog-pricing-identity.md`
-  - `0009-no-external-broker-initially.md`
+  - `0003-use-gradle.md`
+  - `0004-unified-observability-with-opentelemetry.md`
+- Future ADRs written as decisions are made (architecture, CQRS/ES boundaries, event store, etc.)
 - Why ADRs matter: when you revisit a decision in 6 months, the "why" is documented
 
 ### 5.3 Logging — SLF4J + Logback
@@ -496,7 +492,7 @@ Each section follows the Detroit-school TDD cycle:
 | **2** | 1-2 | Collections, lambdas, streams — the functional toolkit |
 | **3** | 1 | Exceptions, I/O, Jackson — file-based persistence |
 | **4** | 1-2 | Concurrency — the big conceptual leap from TS |
-| **5** | 2-3 | E-commerce project bootstrap — Maven multi-module, Flyway, logging, ArchUnit |
+| **5** | 2-3 | E-commerce project bootstrap — Gradle multi-module, Flyway, logging, ArchUnit |
 | **6** | 2-3 | Spring Boot — Catalog bounded context (CRUD, REST, JPA) |
 
 **Total: ~10-15 sessions to complete the structured course.**

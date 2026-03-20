@@ -1,6 +1,6 @@
 # Phase 5 — E-Commerce Project Bootstrap
 
-> **Goal:** By the end of this phase you'll have a multi-module Maven project for an
+> **Goal:** By the end of this phase you'll have a multi-module Gradle project for an
 > e-commerce platform, with structured logging, database migrations, architecture tests,
 > and foundational design decisions documented. No Spring Boot yet — this phase is about
 > the project skeleton and ecosystem tooling.
@@ -11,209 +11,230 @@
 >
 > **Starting point:** You've built a full domain in a single-module Maven project. You know
 > JUnit 5, AssertJ, Jackson, TDD, streams, concurrency, and Java's type system. What you
-> haven't seen: how real Java projects are structured at scale.
+> haven't seen: how real Java projects are structured at scale — and the build tool that
+> most modern Java projects actually use.
 
 ---
 
-## 5.1 — Multi-Module Maven
+## 5.1 — Multi-Module Gradle
 
 ### Read First
 
 **What you know:** A single `pom.xml` with `<dependencies>` that pulls in JUnit, AssertJ,
 and Jackson. Everything lives in one `src/main/java` tree.
 
-**What changes at scale:**
+**What changes:**
 
-Real Java projects split into modules — each with its own `pom.xml`, its own `src/main/java`,
-its own dependencies. A parent POM ties them together.
+Two things change at once. First, real Java projects split into modules — each with its own
+source tree and dependencies. Second, the build tool changes. Maven served you well for
+learning, but Gradle is the default for modern Spring Boot projects, and the one you'll use
+from here.
+
+**Why Gradle over Maven:**
+
+- Spring Boot defaults to Gradle (Spring Initializr, official guides, most tutorials)
+- Kotlin DSL gives you IDE autocomplete and type checking in build files — XML gives you
+  neither
+- Less verbose: a multi-module Gradle build is roughly a third the line count of the
+  equivalent Maven setup
+- Incremental builds and build cache — Gradle only re-runs what changed, Maven rebuilds
+  everything
+- Version catalogs (`libs.versions.toml`) are a cleaner central version management story
+  than `<dependencyManagement>` XML
+
+You already understand Maven's model: dependency scopes, transitive dependencies, build
+lifecycle. Those concepts transfer directly — the syntax changes, the semantics don't.
 
 **The TS comparison:**
 
-| Concept | TypeScript | Java (Maven) |
+| Concept | TypeScript | Java (Gradle) |
 |---------|-----------|--------------|
-| Monorepo structure | `packages/` with Nx/Turborepo | `<modules>` in parent POM |
-| Per-package config | `package.json` per package | `pom.xml` per module |
-| Shared dependency versions | root `package.json` + hoisting | `<dependencyManagement>` in parent |
-| Build order | Nx dependency graph | Maven reactor (auto-detects from `<dependencies>`) |
-| Inter-package imports | `@myorg/common` | `<dependency>` on sibling module's `groupId:artifactId` |
+| Monorepo structure | `packages/` with Nx/Turborepo | `include()` in `settings.gradle.kts` |
+| Per-package config | `package.json` per package | `build.gradle.kts` per module |
+| Shared dependency versions | root `package.json` + hoisting | Version catalog (`libs.versions.toml`) |
+| Build order | Nx dependency graph | Gradle task graph (auto-detects from `dependencies`) |
+| Inter-package imports | `@myorg/common` | `implementation(project(":common"))` |
+| Shared config | Nx generators / root `tsconfig` | `subprojects {}` or convention plugins |
 
-**Parent POM anatomy:**
+**Gradle project structure:**
 
-A parent POM doesn't contain code. It declares:
+A Gradle multi-module project has:
 
-- `<modules>` — which subdirectories are part of the build
-- `<dependencyManagement>` — version pins for dependencies (modules inherit the version
-  without redeclaring it)
-- `<pluginManagement>` — shared plugin configuration (compiler settings, test runner, etc.)
-- `<properties>` — shared values like Java version, encoding, dependency version numbers
+- `settings.gradle.kts` — declares which subdirectories are modules (≈ Maven's `<modules>`)
+- `build.gradle.kts` at the root — shared configuration for all modules
+- `build.gradle.kts` in each module — module-specific dependencies and plugins
+- `gradle/libs.versions.toml` — central version catalog (optional but strongly recommended)
 
-Child modules declare `<parent>` pointing to the parent POM, and inherit everything. They
-only declare `<dependencies>` they actually use — versions come from the parent.
+```kotlin
+// settings.gradle.kts
+rootProject.name = "ecommerce"
 
-```xml
-<!-- parent pom.xml -->
-<groupId>com.example.ecommerce</groupId>
-<artifactId>ecommerce-parent</artifactId>
-<packaging>pom</packaging>
-
-<modules>
-    <module>common</module>
-    <module>catalog</module>
-    <module>order</module>
-</modules>
-
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
+include("common")
+include("catalog")
+include("order")
 ```
 
-```xml
-<!-- catalog/pom.xml -->
-<parent>
-    <groupId>com.example.ecommerce</groupId>
-    <artifactId>ecommerce-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
-</parent>
+```kotlin
+// build.gradle.kts (root)
+plugins {
+    java
+}
 
-<artifactId>catalog</artifactId>
+subprojects {
+    apply(plugin = "java")
 
-<dependencies>
-    <dependency>
-        <groupId>com.example.ecommerce</groupId>
-        <artifactId>common</artifactId>
-        <!-- version inherited from parent's dependencyManagement -->
-    </dependency>
-    <dependency>
-        <groupId>org.junit.jupiter</groupId>
-        <artifactId>junit-jupiter</artifactId>
-        <!-- version AND scope inherited from parent's dependencyManagement -->
-    </dependency>
-</dependencies>
+    group = "com.example.ecommerce"
+    version = "0.1.0-SNAPSHOT"
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        testImplementation(libs.junit.jupiter)
+        testImplementation(libs.assertj.core)
+        testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    }
+
+    tasks.test {
+        useJUnitPlatform()
+    }
+}
 ```
 
-**`dependencyManagement` vs `dependencies`:**
-
-This distinction trips everyone up:
-
-- `<dependencyManagement>` in the parent = "if any child uses this dependency, use this
-  version and scope." It doesn't add the dependency to any module.
-- `<dependencies>` in a child = "I need this dependency." If it's in `dependencyManagement`,
-  the version is inherited. If not, the child must specify a version.
-- `<dependencies>` in the parent = "every module gets this dependency." Use sparingly —
-  most modules shouldn't get every dependency.
-
-**The TS mental model:** `dependencyManagement` is like putting version pins in the root
-`package.json` of an Nx monorepo — it controls versions centrally but doesn't install
-anything. Each package still declares what it uses.
-
-**`pluginManagement` — same pattern for build plugins:**
-
-```xml
-<!-- parent pom.xml -->
-<build>
-    <pluginManagement>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version>
-                <configuration>
-                    <release>${java.version}</release>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.3</version>
-            </plugin>
-        </plugins>
-    </pluginManagement>
-</build>
+```kotlin
+// catalog/build.gradle.kts
+dependencies {
+    implementation(project(":common"))
+}
 ```
 
-Child modules inherit these plugin versions and configurations without redeclaring them.
-The `maven-compiler-plugin` handles compilation (Java version, flags). The
-`maven-surefire-plugin` runs tests (it's why test classes must end in `*Test.java`).
+```toml
+# gradle/libs.versions.toml
+[versions]
+junit = "5.11.4"
+assertj = "3.27.7"
+
+[libraries]
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+```
+
+**Version catalogs — the key concept:**
+
+The `libs.versions.toml` file is Gradle's answer to Maven's `<dependencyManagement>`.
+Versions are declared once; modules reference them by alias:
+
+- `libs.versions.toml` defines `junit-jupiter = { module = "...", version.ref = "junit" }`
+- Any `build.gradle.kts` references it as `libs.junit.jupiter`
+- The version is resolved from the catalog — no version strings scattered across build files
+
+The TS mental model: version catalogs are like pinning versions in the root `package.json`
+of an Nx monorepo. Each package declares what it uses; versions come from the catalog.
+
+**Dependency configurations (≈ Maven scopes):**
+
+| Gradle | Maven equivalent | When to use |
+|--------|-----------------|-------------|
+| `implementation` | `compile` | Standard dependency, not exposed to consumers |
+| `api` | `compile` | Dependency exposed through your public API |
+| `runtimeOnly` | `runtime` | Needed at runtime, not compile (e.g., JDBC drivers) |
+| `testImplementation` | `test` | Test-only dependency |
+| `compileOnly` | `provided` | Compile-time only (e.g., annotation processors) |
+
+The `implementation` vs `api` distinction has no Maven equivalent — it's stricter.
+`implementation` means "I use this internally but don't leak it to my consumers." This
+prevents accidental transitive dependency chains. Use `implementation` by default; only
+use `api` when the dependency appears in your module's public types.
 
 **Build commands:**
 
 | Command | What it does |
 |---------|-------------|
-| `mvn compile` | Compiles all modules in dependency order |
-| `mvn test` | Compiles + runs tests |
-| `mvn package` | Compiles + tests + builds JARs |
-| `mvn install` | All of the above + puts JARs in your local `~/.m2/repository` |
-| `mvn verify` | All of the above + runs integration tests |
-| `mvn clean` | Deletes all `target/` directories |
-| `mvn test -pl catalog` | Runs tests in just the `catalog` module |
-| `mvn test -pl catalog -am` | Runs tests in `catalog` + any modules it depends on |
+| `./gradlew build` | Compiles + runs tests (≈ `mvn verify`) |
+| `./gradlew test` | Compiles + runs tests |
+| `./gradlew :catalog:test` | Runs tests in just the `catalog` module |
+| `./gradlew clean` | Deletes all `build/` directories |
+| `./gradlew dependencies` | Shows dependency tree (≈ `mvn dependency:tree`) |
+| `./gradlew build --continuous` | Watches for changes and rebuilds (no Maven equivalent) |
 
-**Reactor build order:** Maven reads the `<dependencies>` between modules and figures out
-the build order automatically. If `catalog` depends on `common`, Maven compiles `common`
-first. Circular dependencies are a build error — Maven refuses.
+**Task graph:** Gradle reads the `project(":common")` dependencies between modules and
+figures out the build order automatically. If `catalog` depends on `common`, Gradle
+compiles `common` first. Circular dependencies are a build error.
 
-**Watch out:** When one module depends on another, Maven needs the dependency to be
-*installed* in the local repository (`~/.m2/repository`) or built in the same reactor run.
-If you get "Could not resolve artifact" errors for a sibling module, run `mvn install` from
-the root first.
+**Gradle wrapper (`./gradlew`):** The `gradlew` script (and `gradle/wrapper/` directory)
+pin the Gradle version for the project. Everyone — CI, teammates, you — uses the same
+Gradle version without installing it globally. Maven has an equivalent (`mvnw`) but it's
+less universally adopted. Always use `./gradlew`, never a globally installed `gradle`.
+
+**Watch out:** IntelliJ has excellent Gradle support — it auto-imports `build.gradle.kts`
+changes. If things get stale, use the Gradle tool window → reload button. The Kotlin DSL
+gives you red squiggles on build file errors, which Maven's XML never could.
 
 ### Exercise 5.1a — Scaffold the e-commerce project
 
 Create a new repository (outside this crash course repo) for the e-commerce platform.
 
-1. **Create the root project:**
-   - `groupId`: `com.example.ecommerce`
-   - `artifactId`: `ecommerce-parent`
-   - `packaging`: `pom` (parent POMs don't produce JARs)
-   - Java version property: `25`
+1. **Generate a Gradle project:**
+   - The easiest way: run `gradle init` and choose "application", "Java", "Kotlin DSL",
+     then restructure. Or scaffold it manually — the files are simple enough.
+   - Alternatively, use Spring Initializr (start.spring.io) to generate a Gradle project
+     and strip out the Spring parts you don't need yet — this gives you a working Gradle
+     wrapper and build structure.
+   - Either way, make sure you have the Gradle wrapper (`gradlew`, `gradlew.bat`,
+     `gradle/wrapper/`)
 
-2. **Create these modules as subdirectories, each with its own `pom.xml`:**
+2. **Set up the root `settings.gradle.kts`:**
+   - `rootProject.name = "ecommerce"`
+   - `include("common", "catalog", "order", "inventory", "cart", "payment", "search", "notification")`
+
+3. **Set up the root `build.gradle.kts`:**
+   - Apply the `java` plugin to all subprojects
+   - Set Java toolchain to 25
+   - Configure `mavenCentral()` as the repository
+   - Set up common test dependencies (JUnit, AssertJ) in `subprojects {}`
+
+4. **Create a version catalog (`gradle/libs.versions.toml`):**
+   - Pin versions for JUnit Jupiter and AssertJ
+   - Reference them in the root `build.gradle.kts`
+
+5. **Create modules as subdirectories, each with its own `build.gradle.kts`:**
    - `common` — shared value objects, interfaces, base types
-   - `catalog` — product catalog (CRUD, the first bounded context you'll build)
-   - `order` — order management (CQRS/ES later, empty for now)
-   - `inventory` — stock management (CQRS/ES later, empty for now)
+   - `catalog` — product catalog (the first bounded context you'll build)
+   - `order` — order management (empty for now)
+   - `inventory` — stock management (empty for now)
    - `cart` — shopping cart (empty for now)
    - `payment` — payment processing (empty for now)
    - `search` — product search (empty for now)
    - `notification` — event-driven notifications (empty for now)
-3. **Set up `dependencyManagement` in the parent:**
-   - JUnit Jupiter
-   - AssertJ
-   - Pin all versions in `<properties>` and reference them with `${...}`
 
-4. **Set up `pluginManagement` in the parent:**
-   - `maven-compiler-plugin` with Java 25
-   - `maven-surefire-plugin`
-
-5. **Wire up inter-module dependencies:**
-   - `catalog` depends on `common`
+6. **Wire up inter-module dependencies** in each module's `build.gradle.kts`:
+   - `catalog` depends on `common`: `implementation(project(":common"))`
    - `order` depends on `common`
    - `inventory` depends on `common`
-   - Other modules: just `common` for now (add dependencies as needed later)
+   - Other modules: just `common` for now
 
-6. **Verify:** `mvn clean verify` from the root should compile all modules and run any
-   tests (there won't be tests yet, but the build should succeed)
+7. **Verify:** `./gradlew clean build` from the root should compile all modules and run
+   any tests (there won't be tests yet, but the build should succeed)
 
 **Hints:**
 - Each module directory needs `src/main/java/com/example/ecommerce/<module>/` and
   `src/test/java/com/example/ecommerce/<module>/`
-- The parent POM lists modules with `<module>catalog</module>`, etc.
-- Child POMs declare `<parent>` with the parent's `groupId`, `artifactId`, and `version`
-- For inter-module dependencies, use the sibling's `groupId` and `artifactId` — Maven
-  resolves them within the reactor build
-- Use `<version>${project.version}</version>` for sibling module dependencies, or
-  add them to `dependencyManagement` in the parent to avoid version duplication
+- Empty modules need at least a `build.gradle.kts` file (can be empty or just have
+  `// intentionally empty`)
+- For inter-module dependencies, use `implementation(project(":modulename"))`
+- If a module's `build.gradle.kts` is empty, it still inherits everything from the root's
+  `subprojects {}` block
 
-**Watch out:** IntelliJ sometimes needs a Maven reload after creating new modules. Use the
-Maven tool window → reload button, or `mvn clean install` from the terminal to force
-resolution.
+**Watch out:** Unlike Maven, Gradle doesn't require `install` before cross-module
+references work. The project references resolve directly within the build. No local
+repository step needed.
 
 ### Exercise 5.1b — A first test across modules
 
@@ -226,15 +247,16 @@ Verify that cross-module dependencies actually work.
 2. **In `catalog`:** Create a test that imports `ProductId` from `common` and does
    something trivial with it (construct one, assert its value).
 
-3. **Run `mvn test` from the root.** Both modules should compile, the test should pass.
+3. **Run `./gradlew test` from the root.** Both modules should compile, the test should
+   pass.
 
 This proves the multi-module dependency wiring works. If it fails, the error message will
 tell you whether it's a dependency declaration problem or a build order problem.
 
 **Hints:**
-- If you get "package does not exist" — check that `catalog/pom.xml` declares a
-  `<dependency>` on `common`
-- If you get "could not resolve artifact" — run `mvn install` from the root first
+- If you get "package does not exist" — check that `catalog/build.gradle.kts` has
+  `implementation(project(":common"))`
+- Gradle's error messages for dependency resolution are generally more helpful than Maven's
 
 ---
 
@@ -260,8 +282,8 @@ What is the change that we're proposing and/or doing?
 What becomes easier or more difficult to do because of this change?
 ```
 
-**Why bother:** Six months from now, someone (including future you) will ask "why Maven
-instead of Gradle?" or "why didn't we use Axon Server?" The commit history shows *what*
+**Why bother:** Six months from now, someone (including future you) will ask "why Gradle
+instead of Maven?" or "why didn't we use Axon Server?" The commit history shows *what*
 changed but not *why*. ADRs capture the reasoning — the trade-offs you considered, the
 constraints that drove the choice.
 
@@ -291,11 +313,12 @@ Write these four now — they're prerequisites for starting the project:
    - Why Spring Boot over alternatives (Quarkus, Micronaut, plain Java)?
    - Consequence: massive ecosystem and community, but heavyweight compared to alternatives
 
-3. **`0003-use-maven.md`**
-   - Why Maven over Gradle?
-   - Think about: build reproducibility, XML vs Groovy/Kotlin DSL, IDE support, ecosystem
-     familiarity
-   - Consequence: verbose but predictable
+3. **`0003-use-gradle.md`**
+   - Why Gradle over Maven?
+   - Think about: Kotlin DSL with IDE support, Spring Boot ecosystem alignment, build
+     performance (incremental builds, build cache), version catalogs
+   - Consequence: more expressive and faster, but a Turing-complete build language means
+     more rope to hang yourself with — keep build files simple
 
 4. **`0004-unified-observability-with-opentelemetry.md`**
    - Why OpenTelemetry with wide structured events over traditional logging-centric
@@ -450,14 +473,14 @@ dump the entire object including password hashes. Be explicit about what you log
 
 ### Exercise 5.3a — Add logging to the e-commerce project
 
-1. **Add dependencies to the parent POM's `dependencyManagement`:**
+1. **Add dependencies to the version catalog (`gradle/libs.versions.toml`):**
    - `org.slf4j:slf4j-api`
    - `ch.qos.logback:logback-classic` (this pulls in `logback-core` transitively)
    - Look up the latest stable versions
 
-2. **Add these as `<dependencies>` in the `common` module** (other modules will use them
-   too — you can add them to individual modules, or consider whether there's a cleaner way
-   to share test dependencies across modules)
+2. **Add these as dependencies in the `common` module's `build.gradle.kts`** (other modules
+   will use them too — you can add them to `subprojects {}` in the root, or keep them
+   per-module)
 
 3. **Create a `logback-test.xml`** in `common/src/test/resources/`:
    - Console appender with a clear pattern that includes timestamp, thread, level, logger,
@@ -592,13 +615,13 @@ context. The Java agent does this automatically.
 Set up OpenTelemetry in the `common` module with a console exporter — no external
 infrastructure needed.
 
-1. **Add dependencies to the parent POM's `dependencyManagement`:**
-   - `io.opentelemetry:opentelemetry-bom` — import as a BOM (`<type>pom</type>`,
-     `<scope>import</scope>`) in a `<dependencyManagement>` section. This manages versions
-     for all OpenTelemetry artifacts.
-   - Then in child modules you can depend on individual artifacts without version numbers
+1. **Add dependencies to the version catalog:**
+   - `io.opentelemetry:opentelemetry-bom` — import as a platform dependency. This manages
+     versions for all OpenTelemetry artifacts.
+   - In the root `build.gradle.kts` or the version catalog, set up the BOM so child modules
+     can depend on individual artifacts without version numbers
 
-2. **Add dependencies to `common`:**
+2. **Add dependencies to `common`'s `build.gradle.kts`:**
    - `io.opentelemetry:opentelemetry-api`
    - `io.opentelemetry:opentelemetry-sdk` (test scope for now — you'll configure the SDK
      in tests)
@@ -622,6 +645,13 @@ infrastructure needed.
       .setTracerProvider(tracerProvider)
       .build();
   Tracer tracer = otel.getTracer("test");
+  ```
+- Gradle BOMs are imported with `platform()`:
+  ```kotlin
+  dependencies {
+      implementation(platform(libs.opentelemetry.bom))
+      implementation("io.opentelemetry:opentelemetry-api")  // no version needed
+  }
   ```
 - Like the logging exercise, this is about seeing it work, not asserting on output
 - Look at what the logging exporter prints — you'll see span name, trace ID, attributes
@@ -722,17 +752,17 @@ PostgreSQL Docker image — that takes a minute but only happens once.
 This exercise is in the `catalog` module, since that's the first bounded context you'll
 build with a database.
 
-1. **Add dependencies** to the parent POM's `dependencyManagement`:
+1. **Add dependencies to the version catalog:**
    - Flyway core + PostgreSQL module
    - Testcontainers core + JUnit 5 + PostgreSQL
    - PostgreSQL JDBC driver
-   - Look up compatible versions — Testcontainers and Flyway both have BOMs (bill of
-     materials) you can import in `dependencyManagement` to manage version alignment
+   - Look up compatible versions — Testcontainers and Flyway both have BOMs you can import
+     with `platform()` in Gradle to manage version alignment
 
-2. **Add the runtime/test dependencies** to `catalog/pom.xml`:
-   - Flyway: `compile` scope (needed at runtime)
-   - PostgreSQL driver: `runtime` scope (only needed at runtime, not compile time)
-   - Testcontainers: `test` scope
+2. **Add the dependencies to `catalog/build.gradle.kts`:**
+   - Flyway: `implementation` (needed at runtime)
+   - PostgreSQL driver: `runtimeOnly` (only needed at runtime, not compile time)
+   - Testcontainers: `testImplementation`
 
 3. **Write your first migration:**
    - `catalog/src/main/resources/db/migration/V1__create_product_table.sql`
@@ -810,7 +840,7 @@ instead of code style. ESLint can enforce "no unused variables." ArchUnit enforc
 `domain` package must not import from `infrastructure`."
 
 **Why this matters:** In a multi-module project, module boundaries are your primary
-defence against accidental coupling. Maven enforces that module A can't use module B's
+defence against accidental coupling. Gradle enforces that module A can't use module B's
 classes unless it declares a dependency. But *within* a module, packages are just
 directories — nothing stops your domain model from importing a Spring annotation, or
 your controller from reaching into the repository directly. ArchUnit fills that gap.
@@ -855,8 +885,8 @@ that reside in springframework."
 
 Add ArchUnit to the project and write rules that will guide the architecture as you build.
 
-1. **Add `com.tngtech.archunit:archunit-junit5` to `dependencyManagement`** in the parent,
-   then add it as a `test` dependency in modules where you want architecture tests.
+1. **Add `com.tngtech.archunit:archunit-junit5` to the version catalog**, then add it as a
+   `testImplementation` dependency in modules where you want architecture tests.
 
 2. **Create `src/test/java/com/example/ecommerce/ArchitectureTest.java`** in the `common`
    module (or a dedicated test module if you prefer).
@@ -1051,7 +1081,7 @@ BigDecimal("1.00"))` returns `false` — they have different *scales*. Use
 
 Run through this checklist to make sure everything is wired correctly:
 
-1. **`mvn clean verify` from the root** — all modules compile, all tests pass
+1. **`./gradlew clean build` from the root** — all modules compile, all tests pass
 2. **Cross-module dependency works** — `catalog` can import types from `common`
 3. **Logging works** — tests produce formatted log output with correct levels
 4. **OpenTelemetry works** — spans with attributes appear in console output
@@ -1068,8 +1098,8 @@ If all of this works, the e-commerce project is ready for Spring Boot in Phase 6
 
 After completing Phase 5, your e-commerce project should have:
 
-- [ ] Multi-module Maven project with parent POM, `dependencyManagement`, and
-  `pluginManagement`
+- [ ] Multi-module Gradle project with version catalog, shared `subprojects {}` config, and
+  per-module `build.gradle.kts` files
 - [ ] 8 modules (most empty, `common` and `catalog` with initial code)
 - [ ] Cross-module dependencies working (`catalog` → `common`)
 - [ ] SLF4J + Logback configured with proper log levels and MDC
@@ -1079,12 +1109,13 @@ After completing Phase 5, your e-commerce project should have:
 - [ ] `java.time` fluency — `LocalDate`, `Instant`, `Duration`, `Clock` for testable time
 - [ ] `Money` and `DateRange` value objects with full test coverage
 - [ ] 4 ADRs documenting foundational decisions
-- [ ] All tests passing with `mvn clean verify`
+- [ ] All tests passing with `./gradlew clean build`
 
 **Consider:**
-1. How does multi-module Maven compare to Nx/Turborepo? What's better, what's worse?
+1. How does multi-module Gradle compare to Nx/Turborepo? What's better, what's worse?
 2. Where do you draw module boundaries? The current split (by bounded context) is one
    approach. What are the trade-offs vs splitting by layer (api, domain, persistence)?
-3. How would you add a new module? What changes in the parent POM vs the new module's POM?
+3. How would you add a new module? What changes in `settings.gradle.kts` vs the new
+   module's `build.gradle.kts`?
 4. The `Clock` injection pattern for testable time — how does this compare to mocking
    `Date.now()` in TS tests? Which approach do you prefer?
