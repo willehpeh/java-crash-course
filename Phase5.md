@@ -232,6 +232,14 @@ Create a new repository (outside this crash course repo) for the e-commerce plat
 - If a module's `build.gradle.kts` is empty, it still inherits everything from the root's
   `subprojects {}` block
 
+**Watch out:** Two things must be in your shared build configuration for JUnit 5 tests to
+run (the root `build.gradle.kts` example above includes both):
+- `tasks.test { useJUnitPlatform() }` — tells Gradle to use the JUnit 5 test engine
+- `testRuntimeOnly("org.junit.platform:junit-platform-launcher")` — the launcher that
+  JUnit 5 needs on the classpath at runtime
+
+Without either, you'll get "No matching tests found" even though the tests are there.
+
 **Watch out:** Unlike Maven, Gradle doesn't require `install` before cross-module
 references work. The project references resolve directly within the build. No local
 repository step needed.
