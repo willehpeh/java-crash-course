@@ -297,81 +297,61 @@ build independently, using Claude Code as a resource when needed.
 
 ## Phase 6 — Spring Boot & the Catalog Context
 
-> **The Catalog bounded context.** Standard CRUD with Spring Data JPA — deliberately not
-> event-sourced. Ecosystem tooling (logging, Flyway, Testcontainers, ArchUnit, `java.time`,
-> OpenTelemetry) is introduced just-in-time as the Catalog context needs it, not as
-> standalone exercises. Same detailed phase file style.
+> **The Catalog bounded context.** Hexagonal architecture with package-by-use-case
+> organization. Standard CRUD with Spring Data JPA — deliberately not event-sourced.
+> Ecosystem tooling introduced just-in-time. Outside-in testing: tests target use case
+> handlers with real domain objects and fake secondary adapters.
 
-### 6.1 Core Concepts & Dependency Injection
-- **Tests:** wire up beans with `@SpringBootTest`, assert DI works. Register fakes (e.g., `InMemoryProductRepository`) as beans for testing.
+### 6.1 Architecture: Hexagonal + CQRS + Package-by-Use-Case
+- ADRs for hexagonal architecture, package-by-use-case, and CQRS across all modules
+- CQRS without event sourcing: commands (`AddToCatalogCommand`) and queries
+  (`SearchCatalogQuery`) as the vocabulary — same pattern carries to ES modules later
+- Vocabulary packages by business concept (`product/`, `category/`), not architectural layer
+- Command/query packages by business operation (`addtocatalog/`, `discontinue/`, `search/`)
+- `api/` for REST entry point, `infrastructure/persistence/` for database implementation
+
+### 6.2 Spring Boot Setup & Dependency Injection
 - Spring's DI container (≈ Angular's injector)
-- `@Component`, `@Service`, `@Repository`, `@Controller` — stereotypes (≈ `@Injectable()`)
-- Constructor injection — preferred (no `@Autowired` needed when single constructor)
-- `@Configuration` + `@Bean` — manual wiring for complex setup
-- `@Profile` — swap implementations per environment (e.g., in-memory for tests, Postgres for prod)
-- **Detroit-school approach:** register your `InMemoryProductRepository` as a `@Bean` in test configuration. Real objects, real behavior.
+- `@Component` on command/query handlers, constructor injection
+- `@Configuration` + `@Bean` — manual wiring, `@Profile` for environment-specific adapters
+- TDD: write handler tests first, then implement to make them pass
 
-### 6.2 Domain Model & Value Objects
-- `java.time` introduced here — `Instant` for timestamps, `LocalDate` for date ranges, `Clock` for testable time
-- `Money` value object (`BigDecimal` + `Currency`) — learned when the domain requires prices
-- `DateRange` for promotions — `contains()`, `overlaps()`, `duration()`
-- Product domain model: `Product`, `Category`, `ProductId`
-- **Watch out:** `BigDecimal` comparison — `equals()` considers scale, use `compareTo() == 0`
+### 6.3 Domain Value Objects
+- `java.time` — `Instant` for timestamps, `LocalDate` for date ranges, `Clock` for testable time
+- `Money` value object (`BigDecimal` + `Currency`), `DateRange`, `Promotion`
 
-### 6.3 Spring Web — REST APIs
-- **Tests:** `MockMvc` to test controllers without starting a server. Fakes for the service layer.
-- `@RestController` + `@RequestMapping`
-- `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`
-- `@PathVariable`, `@RequestParam`, `@RequestBody`
-- Response types: `ResponseEntity<T>` for control over status codes
-- Exception handling with `@ControllerAdvice` + `@ExceptionHandler`
-- Input validation: `@Valid` + Jakarta Bean Validation (`@NotNull`, `@Size`, `@Email`, etc.)
-- **E-commerce exercise:** Product CRUD endpoints — create product, get by ID, list by category, update, soft-delete
+### 6.4 Spring Web — REST APIs
+- `CatalogController` in `api/` — injects command/query handlers, not a monolithic service
+- `@WebMvcTest` with mocked handlers — tests HTTP wiring, not business logic
+- Validation with `@Valid` + Jakarta Bean Validation, exception handling with `@ControllerAdvice`
 
-### 6.4 Spring Data JPA & Flyway
-- **Tests:** `@DataJpaTest` with Testcontainers PostgreSQL — real DB, Flyway migrations applied
-- **Flyway introduced here:** first migration when you need a database table — `V1__create_product_table.sql`
-- **Testcontainers introduced here:** real PostgreSQL in tests, not H2
-- JPA entities: `@Entity`, `@Id`, `@GeneratedValue`, `@Column`
-- Catalog domain model: `Product`, `Category`, `ProductImage`
-- Relationships: `@ManyToOne` (product → category), `@OneToMany` (product → images)
-- Spring Data repositories: `JpaRepository<Product, UUID>` — interface only, Spring generates the implementation
-- Query methods by naming convention: `findByCategoryIdAndActiveTrue(UUID categoryId)`
-- Custom queries: `@Query("SELECT p FROM Product p WHERE ...")`
-- **Watch out:** JPA entities need a no-arg constructor (can be `protected`). They are not the same as your domain model — keep them in an infrastructure/persistence package and map to domain objects.
+### 6.5 Spring Data JPA & Flyway (Infrastructure)
+- Flyway migrations, Testcontainers PostgreSQL
+- JPA entities in `infrastructure/persistence/` — mapped to domain objects at the boundary
+- `PostgresProductRepository` implements `ProductRepository` port
+- Contract tests: same tests run against fake and real repository implementations
 
-### 6.5 ArchUnit — Enforcing Architecture
-- **Introduced here:** now that you have real layers (api, domain, persistence), ArchUnit
-  rules have something to enforce
-- Domain must not depend on Spring, JPA, or Jackson annotations
-- No `java.util.logging` — enforce SLF4J usage
-- No field injection (`@Autowired` on fields)
-- Controllers in `..api..` packages, domain classes framework-free
-- **Watch out:** start with a few critical rules. Add more as patterns emerge.
+### 6.6 ArchUnit — Enforcing Hexagonal Boundaries
+- Vocabulary packages must not depend on infrastructure (dependency direction enforced)
+- Vocabulary must not depend on Spring, JPA, or Jackson
+- Controllers in `..api..`, entities in `..infrastructure..`
+- No field injection, no `java.util.logging`
 
-### 6.6 Observability
+### 6.7 Observability
 - Logback config for ecosystem output (Spring Boot bundles SLF4J + Logback — no manual deps)
-- OpenTelemetry API + SDK — manual instrumentation at service boundaries
-- Wide events: attach business attributes (product ID, category, cache hit/miss) to spans
+- OpenTelemetry spans on use case handlers — wide events with business attributes
 - Your own code instruments with OTel spans, not `log.info()` — per ADR 0004
-- Console exporter for development, OTLP exporter for production
 
-### 6.7 Layered Architecture & Integration Testing
-- **Tests:** full integration tests with `@SpringBootTest` + `TestRestTemplate` or `WebTestClient`
-- Controller → Service → Repository — standard layering within the catalog module
-- How Detroit-school testing applies at each layer:
-  - **Unit tests:** service with `InMemoryProductRepository` (fake)
-  - **Integration tests:** real Spring context, Testcontainers PostgreSQL, actual HTTP calls
-  - **Contract tests:** same interface tests run against fake and real repository
+### 6.8 Integration Testing
+- Full integration tests with `@SpringBootTest` + Testcontainers
+- Outside-in test pyramid: handlers (fakes) → adapter tests → contract tests → integration
+- Integration tests prove wiring, handler tests prove business logic
 
-### 6.8 Capstone — Catalog API
-- Full CRUD API for products and categories
-- Product listing with filtering (by category, active status, price range)
-- Test pyramid: unit tests (fakes) → integration tests (Testcontainers) → API tests (MockMvc)
-- All driven by TDD from the start
-- ArchUnit rules pass with the new code
-- OTel instrumentation with wide events, Logback configured for ecosystem output
-- The Catalog context is complete and production-shaped — ready to integrate with Order and Inventory contexts later
+### 6.9 Capstone — Catalog API
+- Full API with hexagonal architecture, CQRS command/query handlers, vocabulary packages
+- ArchUnit rules enforcing dependency direction
+- OTel instrumentation, Logback for ecosystem output
+- The Catalog context is complete and production-shaped
 
 ---
 

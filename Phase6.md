@@ -1,8 +1,9 @@
 # Phase 6 — Spring Boot & the Catalog Context
 
 > **Goal:** Build the Catalog bounded context as a full CRUD API with Spring Boot, Spring
-> Data JPA, and PostgreSQL. Ecosystem tooling — logging, Flyway, Testcontainers, ArchUnit,
-> OpenTelemetry, `java.time` — is introduced just-in-time as the domain requires it.
+> Data JPA, and PostgreSQL. The architecture is hexagonal with package-by-use-case
+> organization. Ecosystem tooling — Flyway, Testcontainers, ArchUnit, OpenTelemetry,
+> `java.time` — is introduced just-in-time as the domain requires it.
 >
 > **Everything lives in the e-commerce repo.** The phase file stays here (it's course
 > material); all code goes in the `ecommerce` project you scaffolded in Phase 5.
@@ -10,10 +11,192 @@
 > **Starting point:** You have a multi-module Gradle project with `common` and `catalog`
 > modules, cross-module dependencies working, and ADRs committed. No Spring Boot yet —
 > this phase adds it.
+>
+> **Testing approach:** Outside-in. Tests run against command/query handlers (the primary
+> ports), with real domain objects and fake secondary adapters. Infrastructure adapters
+> get their own contract tests to prove they behave like the fakes.
 
 ---
 
-## 6.1 — Spring Boot Setup & Dependency Injection
+## 6.1 — Architecture: Hexagonal + Package-by-Use-Case
+
+### Read First
+
+**Hexagonal architecture (Ports & Adapters):**
+
+The core idea: the domain is at the centre and knows nothing about the outside world. It
+defines **ports** (interfaces) that describe what it needs. **Adapters** implement those
+ports for specific technologies.
+
+```
+                    ┌─────────────────────────────┐
+  Primary           │         Domain              │         Secondary
+  Adapters          │  (entities, value objects,   │         Adapters
+  (drive the app)   │   command/query handlers)     │         (driven by the app)
+                    │                             │
+  Controller ──────▶│  port: CreateProductHandler  │         port: ProductRepository
+  CLI ─────────────▶│  port: FindProductHandler    │────────▶ PostgresProductRepository
+  Message listener ▶│                             │────────▶ InMemoryProductRepository (fake)
+                    └─────────────────────────────┘
+```
+
+| Hexagonal term | Role | Your code |
+|---|---|---|
+| **Primary adapter** | Drives the application | `@RestController`, CLI, message consumer |
+| **Primary port** | Entry point to the domain | Command/query handler (`AddToCatalogHandler`) |
+| **Domain** | Business logic, pure Java | Entities, value objects, domain services |
+| **Secondary port** | Interface the domain needs | `ProductRepository` (defined by the domain) |
+| **Secondary adapter** | Implements infrastructure | `PostgresProductRepository`, Stripe client |
+
+**The TS comparison:**
+
+If you've used NestJS with clean architecture or Angular with a ports-and-adapters pattern,
+this is the same concept. The controller is a primary adapter that translates HTTP into
+domain calls. The repository is a secondary port that the domain defines and infrastructure
+implements.
+
+**Why this matters:** The domain never depends on Spring, JPA, or any framework. You can
+test it with plain JUnit and fake adapters. The framework concerns live at the edges.
+
+**Package-by-use-case — not by layer:**
+
+Traditional package-by-layer (`domain/`, `service/`, `controller/`, `repository/`) makes
+everything `public` because classes in different packages need to see each other. This
+defeats the isolation that hexagonal promises.
+
+Package-by-use-case groups everything for a single command or query together. Each package
+owns its handler, its command/query object, and any internal helpers. Internal classes are
+**package-private** — genuinely hidden, not just by convention.
+
+**Catalog module structure:**
+
+```
+catalog/src/main/java/tech/reactiv/ecommerce/catalog/
+  addtocatalog/
+    AddToCatalogHandler.java         ← command handler, package-private internals
+    AddToCatalogCommand.java         ← command
+  discontinue/
+    DiscontinueProductHandler.java
+  reprice/
+    RepriceProductHandler.java
+    RepriceCommand.java
+  search/
+    SearchCatalogHandler.java
+    SearchCatalogQuery.java
+  lookup/
+    LookupProductHandler.java
+  product/                           ← vocabulary
+    Product.java
+    ProductId.java
+    ProductRepository.java           ← port (interface)
+  category/
+    Category.java
+    CategoryId.java
+  api/                               ← REST entry point
+    CatalogController.java
+    CatalogExceptionHandler.java
+  infrastructure/
+    persistence/                     ← database implementation
+      ProductEntity.java
+      CategoryEntity.java
+      JpaProductRepository.java
+      PostgresProductRepository.java
+```
+
+**What goes where:**
+
+- **`product/`, `category/`** — vocabulary packages. Named by business concept, not by
+  architectural layer. `Product`, `ProductId`, `ProductRepository` (port interface). Pure
+  Java, no framework annotations. Public — used across command/query packages.
+- **`addtocatalog/`, `discontinue/`, `reprice/`** — command packages. One per write
+  operation. Each contains a command (input), a handler, and any internal helpers
+  (package-private). **`search/`, `lookup/`** — query packages. One per read operation.
+  Named by what the business does, not CRUD verbs.
+- **`api/`** — the REST entry point. The controller translates HTTP to command/query
+  handler calls. Depends on handlers, not on domain internals.
+- **`infrastructure/persistence/`** — database implementation. JPA entities, Spring Data
+  interfaces, `PostgresProductRepository`. The `infrastructure/` parent gives future
+  concerns (messaging, external APIs, file storage) a natural home.
+
+**Command and query handlers — not "services":**
+
+Instead of a god-class `ProductService` with every operation, each command or query gets
+its own handler. Named by business operation, not CRUD verb. This is CQRS in its simplest
+form — separate write path from read path, no event sourcing required:
+
+```java
+@Component
+public class AddToCatalogHandler {
+    private final ProductRepository repository;
+
+    public AddToCatalogHandler(ProductRepository repository) {
+        this.repository = repository;
+    }
+
+    public ProductId handle(AddToCatalogCommand command) {
+        var product = new Product(
+            ProductId.generate(),
+            command.name(),
+            command.description(),
+            command.price()
+        );
+        repository.save(product);
+        return product.id();
+    }
+}
+```
+
+**Testing approach:**
+
+Handler tests use fake secondary adapters — no Spring context needed. Controller tests
+(`@WebMvcTest`) verify HTTP wiring with mocked handlers. Contract tests prove the fake
+repository matches the real implementation.
+
+**For CQRS/ES modules later (Order, Inventory):**
+
+The same structure applies. The only difference is event sourcing behind the command
+handlers — the package organization is identical:
+
+```
+order/
+  placeorder/            ← command handler (+ PlaceOrderCommand)
+  cancelorder/           ← command handler
+  shiporder/             ← command handler
+  orderdetails/          ← query handler (owns its read model/projection)
+  orderhistory/          ← query handler
+  order/                 ← vocabulary (Order aggregate, OrderId, OrderStatus, events)
+  infrastructure/
+    persistence/
+```
+
+The Catalog already uses the same command/query vocabulary. When Order adds event sourcing,
+the handler internals change but the package structure doesn't.
+
+**Watch out:** Package-by-use-case can feel like a lot of packages for simple CRUD. That's
+OK — the structure pays off as complexity grows, and the visibility enforcement prevents
+accidental coupling from the start.
+
+### Exercise 6.1a — Write the architecture ADR
+
+Before writing code, document the decision.
+
+1. **Create `docs/adr/0005-hexagonal-package-by-use-case.md`** in the e-commerce repo:
+   - Why hexagonal over layered architecture?
+   - Why package-by-use-case over package-by-layer?
+   - Consequence: more packages, but genuine encapsulation via package-private visibility
+
+2. **Create `docs/adr/0006-cqrs-everywhere.md`:**
+   - Why CQRS across all modules, not just event-sourced ones?
+   - CQRS is just separating the write path (commands) from the read path (queries) — it
+     doesn't require event sourcing, separate databases, or eventual consistency
+   - Commands: instructions to change state (`AddToCatalogCommand`, `RepriceCommand`)
+   - Queries: requests for information (`LookupProductQuery`, `SearchCatalogQuery`)
+   - Consequence: consistent vocabulary across all modules — the Catalog uses the same
+     command/query pattern that Order and Inventory will use with event sourcing later
+
+---
+
+## 6.2 — Spring Boot Setup & Dependency Injection
 
 ### Read First
 
@@ -36,12 +219,12 @@ instances in the application context. When a bean has a constructor, Spring inje
 required dependencies automatically.
 
 ```java
-@Service
-public class ProductService {
+@Component
+public class AddToCatalogHandler {
     private final ProductRepository repository;
 
     // Single constructor — Spring auto-injects. No @Autowired needed.
-    public ProductService(ProductRepository repository) {
+    public AddToCatalogHandler(ProductRepository repository) {
         this.repository = repository;
     }
 }
@@ -82,14 +265,16 @@ public class TestConfig {
 
 This lets you swap implementations per environment without changing code. In tests, Spring
 loads `InMemoryProductRepository`. In production, it loads the JPA-backed implementation.
+This is hexagonal in action — the port (`ProductRepository`) stays the same, only the
+adapter changes.
 
 **Testing with Spring:**
 
 ```java
 @SpringBootTest
-class ProductServiceTest {
+class AddToCatalogHandlerIntegrationTest {
     @Autowired  // OK in tests — injection happens into test class
-    private ProductService productService;
+    private AddToCatalogHandler handler;
 
     @Test
     void createsProduct() {
@@ -102,92 +287,82 @@ class ProductServiceTest {
 sliced annotations like `@WebMvcTest` (controller layer only) or `@DataJpaTest`
 (repository layer only).
 
-**The Detroit-school approach with Spring:**
-
-You already know how to test services with fakes. Spring doesn't change that — it just
-manages the wiring. For unit tests, you can still construct services directly:
-
-```java
-class ProductServiceTest {
-    private final InMemoryProductRepository repository = new InMemoryProductRepository();
-    private final ProductService service = new ProductService(repository);
-}
-```
-
-No Spring context needed for unit tests. Save `@SpringBootTest` for integration tests
-where you need the full wiring.
+For handler unit tests, construct handlers directly — no Spring context needed. Save
+`@SpringBootTest` for integration tests where you need the full wiring.
 
 **Watch out:** Spring Boot auto-configuration is powerful but magical. If something isn't
 working, check: is the class in a package that Spring is scanning? (It scans the package
 of your `@SpringBootApplication` class and below.) Is the dependency on the classpath?
 Spring configures beans based on what's available.
 
-### Exercise 6.1a — Add Spring Boot to the project
+### Exercise 6.2a — Add Spring Boot to the project
 
 1. **Add the Spring Boot plugin and dependencies to the version catalog:**
    - `org.springframework.boot` plugin (apply to the `catalog` module)
-   - `org.springframework.boot:spring-boot-starter` — the base starter
+   - `org.springframework.boot:spring-boot-starter-web` — Spring MVC + embedded Tomcat +
+     Jackson (includes the base starter transitively, so DI and auto-configuration come
+     for free)
    - `org.springframework.boot:spring-boot-starter-test` — test support
    - Look up the latest Spring Boot 4.x version
    - Spring Boot manages its own dependency versions — you may want to use its BOM via
      `platform()`
 
-2. **Create the application entry point** in `catalog`:
-   - `CatalogApplication.java` with `@SpringBootApplication` and a `main` method
-   - Package: your base package (e.g., `tech.reactiv.ecommerce.catalog`)
-
-3. **Verify the app starts:** `./gradlew :catalog:bootRun` — you should see the Spring
-   banner and a startup log message. It'll fail to serve requests (no web layer yet), but
-   the context should load.
+2. **Create `CatalogApplication.java`** in your base package (e.g.,
+   `tech.reactiv.ecommerce.catalog`):
+   - Annotate with `@SpringBootApplication`
+   - No `main` method needed yet — `@SpringBootTest` bootstraps the context for tests.
+     You'll add `main` in 6.4a when you have endpoints to hit.
 
 **Hints:**
-- The Spring Boot Gradle plugin provides `bootRun` and `bootJar` tasks
 - `@SpringBootApplication` is a shortcut for `@Configuration` + `@EnableAutoConfiguration`
   + `@ComponentScan`
-- If the app fails to start, read the error carefully — Spring Boot error messages are
-  usually descriptive
+- Spring scans the package of this class and everything below it — make sure your use case
+  and vocabulary packages are descendants
 
-### Exercise 6.1b — Dependency injection with a service and fake
+### Exercise 6.2b — First command: add to catalog
 
-1. **Create a `ProductRepository` interface** in the catalog module's domain package:
-   - `save(Product)`, `findById(ProductId)`, `findAll()`, `findByCategory(CategoryId)`
-   - Same pattern as your library's `LoanRepository`
+1. **Create the vocabulary packages:**
+   - `product/` — `ProductId` (record), `Product`, `ProductRepository` (port interface
+     with `save`, `findById`, `findAll`, `findByCategory`)
+   - `category/` — `CategoryId` (record), `Category`
 
-2. **Create `InMemoryProductRepository`** in the test source tree:
-   - Implements `ProductRepository` with a `Map<ProductId, Product>` backing store
-   - Same fake pattern you used in the library project
+2. **Create `InMemoryProductRepository`** in the test source tree — expose the backing
+   `Map<ProductId, Product>` as a public accessor.
 
-3. **Create `ProductService`** annotated with `@Service`:
-   - Takes `ProductRepository` via constructor injection
-   - Methods: `createProduct(...)`, `findProduct(ProductId)`, `listProducts()`
+3. **Create the `addtocatalog/` package:**
+   - `AddToCatalogCommand` (record with name, description, price)
+   - `AddToCatalogHandler` (annotated `@Component`, takes `ProductRepository` via
+     constructor, returns `ProductId`)
 
-4. **Write a unit test** (no Spring context) that constructs `ProductService` with the
-   fake repository and tests basic behavior.
-
-5. **Write a Spring integration test** with `@SpringBootTest`:
-   - Register `InMemoryProductRepository` as a `@Bean` via a test `@Configuration` class
-   - Inject `ProductService` and verify it works within the Spring context
+4. **Test it** — verify the handler saves a product and returns its ID. Assert against
+   the fake's backing map, not through repository query methods.
 
 **Hints:**
-- For the integration test, create an inner `@TestConfiguration` class:
-  ```java
-  @SpringBootTest
-  class ProductServiceIntegrationTest {
-      @TestConfiguration
-      static class Config {
-          @Bean
-          ProductRepository productRepository() {
-              return new InMemoryProductRepository();
-          }
-      }
-  }
-  ```
-- The unit test and integration test should test the same behavior — the difference is
-  whether Spring manages the wiring
+- `ProductId.generate()` can wrap `UUID.randomUUID()`
+- The handler creates the domain object and delegates to the repository — keep it thin
+
+### Exercise 6.2c — Remaining commands and queries
+
+**Commands (write operations):**
+1. **`reprice/`** — `RepriceProductHandler` takes a `RepriceCommand` (product ID + new
+   price). Throws if product not found.
+2. **`discontinue/`** — `DiscontinueProductHandler` takes a product ID, sets `active` to
+   false. Throws if product not found.
+
+**Queries (read operations):**
+3. **`lookup/`** — `LookupProductHandler` takes a `ProductId`, returns `Optional<Product>`.
+4. **`search/`** — `SearchCatalogHandler` takes a `SearchCatalogQuery` (optional category
+   filter), returns `List<Product>`.
+
+Test each handler against the `InMemoryProductRepository`.
+
+**Hints:**
+- Share the same `InMemoryProductRepository` instance across handlers in tests — seed it
+  with products in `@BeforeEach`
 
 ---
 
-## 6.2 — Domain Model & Value Objects
+## 6.3 — Domain Value Objects
 
 ### Read First
 
@@ -232,16 +407,11 @@ LocalDate nextWeek = today.plusWeeks(1);  // today is unchanged
 `LocalDate.now()` uses the system clock. In tests, inject a `Clock`:
 
 ```java
-public class PromotionService {
-    private final Clock clock;
+public class Promotion {
+    private final DateRange activePeriod;
 
-    public PromotionService(Clock clock) {
-        this.clock = clock;
-    }
-
-    public boolean isActive(LocalDate start, LocalDate end) {
-        LocalDate today = LocalDate.now(clock);
-        return !today.isBefore(start) && !today.isAfter(end);
+    public boolean isActive(Clock clock) {
+        return activePeriod.contains(LocalDate.now(clock));
     }
 }
 ```
@@ -264,7 +434,7 @@ BigDecimal total = price.multiply(BigDecimal.valueOf(3));  // 59.97
 **Watch out:** `new BigDecimal("1.0").equals(new BigDecimal("1.00"))` returns `false` —
 they have different scales. Use `compareTo() == 0` for value equality.
 
-### Exercise 6.2a — `Money` value object
+### Exercise 6.3a — `Money` value object
 
 1. **Create a `Money` record** in `common` (it'll be used across modules):
    - Fields: `BigDecimal amount`, `Currency currency` (use `java.util.Currency`)
@@ -285,7 +455,7 @@ they have different scales. Use `compareTo() == 0` for value equality.
   `amount.multiply(BigDecimal.valueOf(quantity))`
 - For equality in tests, either use `compareTo` or `stripTrailingZeros()` before comparing
 
-### Exercise 6.2b — `DateRange` value object
+### Exercise 6.3b — `DateRange` value object
 
 1. **Create a `DateRange` record** in `common`:
    - Fields: `LocalDate start`, `LocalDate end`
@@ -302,9 +472,9 @@ they have different scales. Use `compareTo() == 0` for value equality.
 - `Period.between(start, end)` for duration
 - Use `isBefore()` / `isAfter()` — don't compare with `<` / `>`
 
-### Exercise 6.2c — `Promotion` with time-aware logic
+### Exercise 6.3c — `Promotion` with time-aware logic
 
-1. **Create a `Promotion` class** in `catalog`:
+1. **Create a `Promotion` class** in `catalog`'s `domain/` package:
    - Fields: description, discount percentage (`BigDecimal`), `DateRange`
    - Method: `isActive(Clock)` — is the promotion currently active?
 
@@ -322,9 +492,13 @@ they have different scales. Use `compareTo() == 0` for value equality.
 
 ---
 
-## 6.3 — Spring Web — REST APIs
+## 6.4 — Spring Web — REST APIs (Primary Adapter)
 
 ### Read First
+
+The controller is the **REST entry point** — it translates HTTP requests into command/query
+handler calls and domain responses back into HTTP responses. It should be thin: parse the
+request, call the handler, format the response.
 
 **The TS comparison:**
 
@@ -344,27 +518,36 @@ they have different scales. Use `compareTo() == 0` for value equality.
 ```java
 @RestController
 @RequestMapping("/api/products")
-public class ProductController {
-    private final ProductService productService;
+public class CatalogController {
+    private final AddToCatalogHandler addToCatalog;
+    private final LookupProductHandler lookupProduct;
+    private final SearchCatalogHandler searchCatalog;
 
-    public ProductController(ProductService productService) {
-        this.productService = productService;
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<Product> getProduct(@PathVariable UUID id) {
-        return productService.findProduct(new ProductId(id))
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+    public CatalogController(AddToCatalogHandler addToCatalog,
+                             LookupProductHandler lookupProduct,
+                             SearchCatalogHandler searchCatalog) {
+        this.addToCatalog = addToCatalog;
+        this.lookupProduct = lookupProduct;
+        this.searchCatalog = searchCatalog;
     }
 
     @PostMapping
-    public ResponseEntity<Product> createProduct(@Valid @RequestBody CreateProductRequest request) {
-        Product product = productService.createProduct(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(product);
+    public ResponseEntity<ProductId> add(@Valid @RequestBody AddToCatalogCommand command) {
+        ProductId id = addToCatalog.handle(command);
+        return ResponseEntity.created(URI.create("/api/products/" + id.value())).body(id);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Product> getById(@PathVariable UUID id) {
+        return lookupProduct.handle(new ProductId(id))
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
     }
 }
 ```
+
+The controller injects command and query handlers — not a monolithic service. Each endpoint
+delegates to the appropriate handler.
 
 **Exception handling — centralized:**
 
@@ -385,7 +568,7 @@ handles all exception-to-response mapping.
 **Input validation:**
 
 ```java
-public record CreateProductRequest(
+public record AddToCatalogCommand(
     @NotBlank String name,
     @NotNull @Positive BigDecimal price,
     String description
@@ -398,17 +581,23 @@ details automatically.
 **Testing controllers with `MockMvc`:**
 
 ```java
-@WebMvcTest(ProductController.class)
-class ProductControllerTest {
+@WebMvcTest(CatalogController.class)
+class CatalogControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockitoBean  // one of the few places Mockito is acceptable
-    private ProductService productService;
+    @MockitoBean
+    private AddToCatalogHandler addToCatalogHandler;
+
+    @MockitoBean
+    private LookupProductHandler lookupProductHandler;
+
+    @MockitoBean
+    private SearchCatalogHandler searchCatalogHandler;
 
     @Test
     void returnsProductById() throws Exception {
-        when(productService.findProduct(any()))
+        when(lookupProductHandler.handle(any()))
             .thenReturn(Optional.of(testProduct));
 
         mockMvc.perform(get("/api/products/{id}", productId))
@@ -418,51 +607,56 @@ class ProductControllerTest {
 }
 ```
 
-**Why Mockito here:** `@WebMvcTest` loads only the web layer. The service isn't in the
-context — you mock it because the test's concern is HTTP handling (routing, serialization,
-status codes), not business logic. This is one of the rare cases where mocking is
-appropriate in Detroit-school TDD: the test is about the boundary adapter, not the domain.
+**Why Mockito here:** `@WebMvcTest` loads only the web layer. The handlers aren't in the
+context — you mock them because the test's concern is HTTP handling (routing, serialization,
+status codes), not business logic.
 
 **Watch out:** `@WebMvcTest` is a *sliced* test — it only loads controllers, not the full
 context. This makes it fast but means you need to provide (or mock) any dependencies the
 controller needs.
 
-### Exercise 6.3a — Product CRUD endpoints
+### Exercise 6.4a — Product endpoints
 
-1. **Add the Spring Web starter** (`spring-boot-starter-web`) to the catalog module.
+1. **Add a `main` method** to `CatalogApplication`:
+   ```java
+   public static void main(String[] args) {
+       SpringApplication.run(CatalogApplication.class, args);
+   }
+   ```
 
-2. **Create `CreateProductRequest`** — a record with validation annotations:
-   - `@NotBlank name`, `@NotNull @Positive price`, optional `description`,
-     optional `categoryId`
+2. **Create `CatalogController`** in `api/` with these endpoints:
+   - `POST /api/products` — delegates to `AddToCatalogHandler` (returns 201)
+   - `GET /api/products/{id}` — delegates to `LookupProductHandler` (returns 200 or 404)
+   - `GET /api/products` — delegates to `SearchCatalogHandler` (returns 200)
+   - `GET /api/products?category={id}` — delegates to `SearchCatalogHandler` with filter
+   - `PUT /api/products/{id}/price` — delegates to `RepriceProductHandler` (returns 200
+     or 404)
+   - `DELETE /api/products/{id}` — delegates to `DiscontinueProductHandler` (returns 204
+     or 404)
 
-3. **Create `ProductController`** with these endpoints:
-   - `POST /api/products` — create a product (returns 201)
-   - `GET /api/products/{id}` — get by ID (returns 200 or 404)
-   - `GET /api/products` — list all (returns 200)
-   - `GET /api/products?category={id}` — filter by category
-   - `PUT /api/products/{id}` — update (returns 200 or 404)
-   - `DELETE /api/products/{id}` — soft-delete (returns 204 or 404)
+3. **Create `CatalogExceptionHandler`** in `api/` with `@ControllerAdvice` — maps
+   exceptions to HTTP status codes (not-found → 404, validation → 400).
 
-4. **Create `CatalogExceptionHandler`** with `@ControllerAdvice`:
-   - Handle not-found exceptions → 404
-   - Handle validation errors → 400 with details
+4. **Add validation annotations** to `AddToCatalogCommand`: `@NotBlank name`,
+   `@NotNull @Positive price`.
 
-5. **Write `MockMvc` tests** for each endpoint:
-   - Happy paths: create, read, list, update, delete
-   - Error paths: not found, invalid input (missing name, negative price)
+5. **Test with `MockMvc`** — happy paths (create, read, list, filter, update, delete) and
+   error paths (not found, invalid input).
 
 **Hints:**
 - Add `spring-boot-starter-validation` for Jakarta Bean Validation
 - `ResponseEntity.created(URI.create("/api/products/" + id)).body(product)` for 201
   responses with Location header
-- For soft-delete, set an `active` flag rather than removing the entity
+- For soft-delete, the `DeleteProductHandler` sets `active` to false
 - `@RequestParam(required = false) UUID category` for optional query params
 - `MockMvc` assertions: `status().isCreated()`, `jsonPath("$.id").exists()`,
   `content().contentType(MediaType.APPLICATION_JSON)`
+- Verify `./gradlew :catalog:bootRun` starts the app and you can hit the endpoints with
+  `curl` or your browser
 
 ---
 
-## 6.4 — Spring Data JPA & Flyway
+## 6.5 — Spring Data JPA & Flyway (Infrastructure)
 
 ### Read First
 
@@ -518,8 +712,9 @@ the method name — `findByCategoryIdAndActiveTrue` becomes
 **JPA entities vs domain model:**
 
 JPA entities are persistence concerns — they need `@Entity`, a no-arg constructor, mutable
-setters (or field access). Your domain model should be clean Java — records, immutable,
-no framework annotations. Map between them at the repository boundary:
+setters (or field access). Your domain model is pure Java — records, immutable, no
+framework annotations. `PostgresProductRepository` in `infrastructure/persistence/` maps
+between them at the boundary:
 
 ```java
 @Repository
@@ -545,7 +740,7 @@ be `final` if you use field access. This feels wrong after building immutable do
 objects — that's why you map between entity and domain model rather than using one class
 for both.
 
-### Exercise 6.4a — Flyway migrations
+### Exercise 6.5a — Flyway migrations
 
 1. **Add dependencies to the version catalog:**
    - `org.flywaydb:flyway-core`, `org.flywaydb:flyway-database-postgresql`
@@ -591,12 +786,12 @@ for both.
 **Experiment:** Edit `V1__create_product_table.sql` after running the test. Re-run and
 observe Flyway's checksum error. This is why migrations are immutable.
 
-### Exercise 6.4b — JPA entities and Spring Data repositories
+### Exercise 6.5b — JPA entities and the persistence infrastructure
 
-1. **Create `ProductEntity`** in a `persistence` package:
+1. **Create `ProductEntity`** in `infrastructure/persistence/`:
    - `@Entity`, `@Table(name = "product")`
-   - Fields matching the migration schema, plus a `toDomain()` method
-   - A `static fromDomain(Product)` factory method
+   - Fields matching the migration schema, plus `toDomain()` method and
+     `static fromDomain(Product)` factory
    - Protected no-arg constructor for JPA
 
 2. **Create `CategoryEntity`** similarly.
@@ -605,14 +800,11 @@ observe Flyway's checksum error. This is why migrations are immutable.
    - `findByCategoryIdAndActiveTrue(UUID categoryId)`
    - `findByActiveTrue()`
 
-4. **Create `PostgresProductRepository`** implementing your `ProductRepository` interface:
-   - Wraps `JpaProductRepository`
-   - Maps between `ProductEntity` and `Product` domain objects
+4. **Create `PostgresProductRepository`** implementing `ProductRepository`:
+   - Wraps `JpaProductRepository`, maps between entity and domain objects
 
-5. **Write a `@DataJpaTest`** with Testcontainers:
-   - Configure Spring to use the Testcontainer's PostgreSQL URL
-   - Flyway runs automatically (Spring Boot auto-configures it)
-   - Save a product, retrieve it, assert the domain object is correct
+5. **Test with `@DataJpaTest`** + Testcontainers — save a product, retrieve it, assert the
+   domain object round-trips correctly. Test category filtering.
 
 **Hints:**
 - For `@DataJpaTest` with Testcontainers, use `@DynamicPropertySource`:
@@ -629,10 +821,7 @@ observe Flyway's checksum error. This is why migrations are immutable.
 - Spring Boot auto-detects Flyway on the classpath and runs migrations on startup
 - The JPA entity package must be scannable from `@SpringBootApplication`
 
-### Exercise 6.4c — Contract tests
-
-Now you have two `ProductRepository` implementations — `InMemoryProductRepository` (fake)
-and `PostgresProductRepository` (real). Prove they behave identically.
+### Exercise 6.5c — Contract tests
 
 1. **Extract a `ProductRepositoryContract`** — an abstract test class with all the
    repository behavior tests.
@@ -642,17 +831,15 @@ and `PostgresProductRepository` (real). Prove they behave identically.
 3. **`PostgresProductRepositoryTest`** extends the contract, provides the real
    implementation with Testcontainers.
 
-4. **Both test classes run the exact same tests** — if they pass on both, your fake is a
-   faithful substitute for the real thing.
+Same pattern as `LoanRepository` in the library project.
 
 **Hints:**
 - The contract class has an abstract method: `protected abstract ProductRepository repository()`
 - Each subclass implements it — one returns the fake, one returns the Postgres-backed impl
-- This is the same pattern you used for `LoanRepository` in the library project
 
 ---
 
-## 6.5 — ArchUnit — Enforcing Architecture
+## 6.6 — ArchUnit — Enforcing Hexagonal Boundaries
 
 ### Read First
 
@@ -660,32 +847,21 @@ and `PostgresProductRepository` (real). Prove they behave identically.
 *structure* — which packages depend on which, what naming conventions are followed, where
 annotations are allowed. It runs as a normal JUnit test.
 
-Think of it as ESLint rules for architectural constraints. ESLint enforces "no unused
-variables." ArchUnit enforces "the `domain` package must not import from
-`infrastructure`."
+Think of it as ESLint rules for architectural constraints. Now that you have hexagonal
+architecture with real boundaries (vocabulary, commands, queries, adapters), these rules enforce the
+dependency direction.
 
-Now that you have real layers (api, domain, persistence), these rules have teeth.
+**The key hexagonal rule:** Dependencies point inward. Infrastructure and API depend on the
+vocabulary and commands/queries. The vocabulary depends on nothing external.
 
-**Basic API:**
-
-```java
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
-
-@AnalyzeClasses(packages = "tech.reactiv.ecommerce")
-class ArchitectureTest {
-
-    @ArchTest
-    static final ArchRule domainMustNotDependOnSpring =
-        noClasses()
-            .that().resideInAPackage("..domain..")
-            .should().dependOnClassesThat()
-            .resideInAPackage("org.springframework..");
-}
+```
+api/  ──▶  commands/queries  ──▶  vocabulary (product/, category/)  ◀──  infrastructure/persistence/
+                                       │
+                                       ▼
+                                   (nothing)
 ```
 
-Rules read like English. `@AnalyzeClasses` scans once, reuses across all `@ArchTest` fields.
-
-### Exercise 6.5a — Architecture rules
+### Exercise 6.6a — Architecture rules
 
 1. **Add `com.tngtech.archunit:archunit-junit5`** to the version catalog and as a
    `testImplementation` dependency.
@@ -694,18 +870,25 @@ Rules read like English. `@AnalyzeClasses` scans once, reuses across all `@ArchT
 
 3. **Write these rules:**
 
-   a. **Domain independence:** Classes in `..domain..` must not depend on Spring, JPA, or
-      Jackson annotations. The domain model is pure Java.
+   a. **Vocabulary independence:** Classes in `..product..` and `..category..` (vocabulary
+      packages) must not depend on Spring, JPA, or Jackson annotations. Pure Java.
 
-   b. **No `java.util.logging`:** All logging through SLF4J.
+   b. **Dependency direction:** Vocabulary packages must not depend on classes in
+      `..infrastructure..` or `..api..`. Vocabulary defines ports; it never reaches out.
 
-   c. **No field injection:** No field annotated with `@Autowired`.
+   c. **Commands/queries don't depend on infrastructure:** Classes in command/query
+      packages (e.g., `..addtocatalog..`) must not depend on classes in
+      `..infrastructure..`.
 
-   d. **Controllers in api packages:** Classes annotated with `@RestController` must reside
-      in `..api..` packages.
+   d. **No `java.util.logging`:** All logging through SLF4J.
 
-   e. **Entities in persistence packages:** Classes annotated with `@Entity` must reside
-      in `..persistence..` packages.
+   e. **No field injection:** No field annotated with `@Autowired`.
+
+   f. **Controllers in api packages:** Classes annotated with `@RestController` must
+      reside in `..api..` packages.
+
+   g. **Entities in infrastructure packages:** Classes annotated with `@Entity` must reside
+      in `..infrastructure..` packages.
 
 4. **Run the tests.** They should pass — if they don't, you have an architectural violation
    to fix.
@@ -714,7 +897,9 @@ Rules read like English. `@AnalyzeClasses` scans once, reuses across all `@ArchT
 - `@AnalyzeClasses(packages = "tech.reactiv.ecommerce")` scans all modules on the test
   classpath
 - Rules are `static final` fields, not test methods — ArchUnit caches the class scan
-- Start with these few rules. Add more as patterns emerge.
+- For the dependency direction rules, `noClasses().that().resideInAPackage("..product..")
+  .should().dependOnClassesThat().resideInAPackage("..infrastructure..")`
+- Start with these rules. Add more as patterns emerge.
 - Import from `com.tngtech.archunit.lang.syntax.ArchRuleDefinition`
 
 **Watch out:** ArchUnit rules that are too strict early on will slow you down. The goal is
@@ -722,7 +907,7 @@ to prevent architectural decay, not to micromanage class placement.
 
 ---
 
-## 6.6 — Observability
+## 6.7 — Observability
 
 ### Read First
 
@@ -757,13 +942,13 @@ You only need to:
 **Manual instrumentation:**
 
 ```java
-Span span = tracer.spanBuilder("CatalogService.findProduct")
-    .setAttribute("product.id", id.value().toString())
+Span span = tracer.spanBuilder("AddToCatalogHandler.handle")
+    .setAttribute("product.name", command.name())
     .startSpan();
 try (Scope scope = span.makeCurrent()) {
-    Product product = repository.findById(id);
-    span.setAttribute("product.found", product != null);
-    return product;
+    ProductId id = // ...
+    span.setAttribute("product.id", id.value().toString());
+    return id;
 } catch (Exception e) {
     span.recordException(e);
     span.setStatus(StatusCode.ERROR, e.getMessage());
@@ -775,8 +960,8 @@ try (Scope scope = span.makeCurrent()) {
 
 **Wide events — the key practice:**
 
-The value isn't in creating spans. It's in what you attach. A span for a product lookup
-might carry:
+The value isn't in creating spans. It's in what you attach. A span for a command might
+carry:
 - `product.id`, `product.category` (what)
 - `cache.hit`, `db.query_count` (how the system behaved)
 - `user.tier` (who)
@@ -802,7 +987,7 @@ Otherwise, span attributes are your primary instrument.
 - `logback-spring.xml` (not `logback.xml`) lets you use Spring profiles in the config
 - Never log sensitive data (passwords, tokens, PII)
 
-### Exercise 6.6a — Configure Logback for ecosystem output
+### Exercise 6.7a — Configure Logback for ecosystem output
 
 1. **Create `logback-spring.xml`** in `catalog/src/main/resources/`:
    ```xml
@@ -824,7 +1009,7 @@ Otherwise, span attributes are your primary instrument.
 
 This is configuration, not an exercise — just get the ecosystem's output readable.
 
-### Exercise 6.6b — Add OpenTelemetry to the catalog service
+### Exercise 6.7b — Add OpenTelemetry to command/query handlers
 
 1. **Add the OpenTelemetry BOM** to the version catalog, then add dependencies to the
    catalog module:
@@ -836,14 +1021,14 @@ This is configuration, not an exercise — just get the ecosystem's output reada
    - Only the BOM needs a version entry in the catalog. Individual artifacts use string
      coordinates with `platform()` resolving versions.
 
-2. **Inject a `Tracer`** into `ProductService` (constructor parameter).
+2. **Inject a `Tracer`** into command/query handlers (constructor parameter).
 
-3. **Instrument `findProduct`** and `createProduct` with spans:
-   - Span name: `"ProductService.findProduct"`
-   - Attributes: `product.id`, `product.found`, `product.name`, `product.category`
+3. **Instrument `AddToCatalogHandler`** and `LookupProductHandler` with spans:
+   - Span name: `"AddToCatalogHandler.handle"`
+   - Attributes: `product.id`, `product.found`, `product.name`
 
-4. **Write a test** that configures the SDK, creates the service with a real tracer, and
-   runs an operation. Check the console for span output.
+4. **Write a test** that configures the SDK, creates the handler with a real tracer and
+   fake repository, and runs an operation. Check the console for span output.
 
 **Hints:**
 - SDK setup in tests:
@@ -856,30 +1041,31 @@ This is configuration, not an exercise — just get the ecosystem's output reada
       .build();
   Tracer tracer = otel.getTracer("catalog-test");
   ```
-- Don't over-instrument. Service boundaries and key decision points, not every method.
+- Don't over-instrument. Command/query handlers and key domain decision points, not every method.
 - The `Tracer` should be injected (constructor parameter), same pattern as `Clock`
 
 ---
 
-## 6.7 — Layered Architecture & Integration Testing
+## 6.8 — Integration Testing
 
 ### Read First
 
-You now have all the layers:
-- **API** (`@RestController`) — HTTP in/out
-- **Service** (`@Service`) — business logic
-- **Persistence** (`@Repository`) — database access
-- **Domain** — pure Java, no framework dependencies
+You now have all the hexagonal pieces:
+- **Primary adapters** (`@RestController` in `adapter/in/api/`) — HTTP in/out
+- **Command/query handlers** (`addtocatalog/`, `lookup/`, etc.) — business logic entry points
+- **Domain** (`domain/`) — entities, value objects, ports
+- **Secondary adapters** (`adapter/out/persistence/`) — database access
 
-**Testing at each layer:**
+**Testing strategy:**
 
-| Layer | Test style | What it proves |
-|-------|-----------|---------------|
-| Domain | Plain JUnit, no Spring | Value objects, business rules work |
-| Service | JUnit with fakes | Business logic works with correct dependencies |
-| Controller | `@WebMvcTest` with mocked service | HTTP routing, serialization, status codes |
-| Repository | `@DataJpaTest` + Testcontainers | SQL, JPA mappings, query derivation |
-| Integration | `@SpringBootTest` + Testcontainers | Everything works together |
+| What | Test style | What it proves |
+|------|-----------|---------------|
+| Domain value objects | Plain JUnit, no Spring | `Money`, `DateRange`, `Promotion` work |
+| Command/query handlers | JUnit with fake adapters | Business logic works (your primary tests) |
+| Primary adapter | `@WebMvcTest` with mocked handlers | HTTP routing, serialization, status codes |
+| Secondary adapter | `@DataJpaTest` + Testcontainers | SQL, JPA mappings, query derivation |
+| Adapter contract | Same tests on fake + real | Fake is a faithful substitute |
+| End-to-end | `@SpringBootTest` + Testcontainers | Everything wires together |
 
 **Full integration tests:**
 
@@ -895,21 +1081,21 @@ class CatalogIntegrationTest {
 
     @Test
     void createAndRetrieveProduct() {
-        var request = new CreateProductRequest("Widget", new BigDecimal("19.99"), null, null);
-        var created = restTemplate.postForEntity("/api/products", request, Product.class);
+        var command = new AddToCatalogCommand("Widget", "A fine widget", new BigDecimal("19.99"));
+        var created = restTemplate.postForEntity("/api/products", command, ProductId.class);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         var retrieved = restTemplate.getForEntity(
-            "/api/products/" + created.getBody().id(), Product.class);
+            "/api/products/" + created.getBody().value(), Product.class);
         assertThat(retrieved.getBody().name()).isEqualTo("Widget");
     }
 }
 ```
 
-This starts the full application, including web server, Spring context, and a real database.
-It tests the entire request path from HTTP to database and back.
+This starts the full application — web server, Spring context, real database — and tests
+the entire request path from HTTP through command handler to database and back.
 
-### Exercise 6.7a — Integration tests
+### Exercise 6.8a — Integration tests
 
 1. **Write full integration tests** with `@SpringBootTest` and Testcontainers:
    - Create a product via POST, retrieve via GET
@@ -917,36 +1103,41 @@ It tests the entire request path from HTTP to database and back.
    - Update a product, verify changes persist
    - Soft-delete, verify it no longer appears in listings
 
-2. **Verify the full test pyramid:**
+2. **Verify the full test coverage:**
    - Domain: `Money`, `DateRange`, `Promotion` tests (no Spring)
-   - Service: `ProductService` with `InMemoryProductRepository` (no Spring)
-   - Controller: `@WebMvcTest` with mocked service
-   - Repository: `@DataJpaTest` + Testcontainers (contract tests)
+   - Command/query handlers: tests with `InMemoryProductRepository` (no Spring)
+   - Primary adapter: `@WebMvcTest` with mocked handlers
+   - Secondary adapter: `@DataJpaTest` + Testcontainers
+   - Contract: same tests on fake + real repository
    - Integration: `@SpringBootTest` + Testcontainers (end-to-end)
 
 **Hints:**
 - `TestRestTemplate` is auto-configured by `@SpringBootTest` with `RANDOM_PORT`
 - Use `@DynamicPropertySource` to point Spring at the Testcontainer's PostgreSQL
-- Integration tests are slow — keep them focused on proving the layers connect, not
-  re-testing business logic
+- Integration tests are slow — focus on proving the wiring, not re-testing business logic
 
 ---
 
-## 6.8 — Capstone
+## 6.9 — Capstone
 
-### Exercise 6.8a — Verify the full Catalog context
+### Exercise 6.9a — Verify the full Catalog context
 
 Run through this checklist:
 
 1. **`./gradlew clean build`** — all modules compile, all tests pass
 2. **CRUD API works** — create, read, list, filter, update, soft-delete products
-3. **Flyway migrations** run against Testcontainers PostgreSQL
-4. **Contract tests** pass on both fake and real repository implementations
-5. **ArchUnit rules** pass — domain is clean, controllers in api, entities in persistence
-6. **Observability** — OTel spans appear with meaningful attributes, Logback output is
+3. **Hexagonal structure** — domain defines ports, adapters implement them, dependencies
+   point inward
+4. **Package-by-use-case** — each command/query owns its handler, internal classes are
+   package-private
+5. **Flyway migrations** run against Testcontainers PostgreSQL
+6. **Contract tests** pass on both fake and real repository implementations
+7. **ArchUnit rules** pass — vocabulary is clean, infrastructure isolated, dependency
+   direction enforced
+8. **Observability** — OTel spans appear with meaningful attributes, Logback output is
    readable
-8. **Value objects** (`Money`, `DateRange`, `ProductId`) have test coverage
-9. **Integration tests** prove the full request path works
+9. **Value objects** (`Money`, `DateRange`, `ProductId`) have test coverage
+10. **Integration tests** prove the full request path works
 
 If all of this passes, the Catalog context is complete and production-shaped.
 
@@ -957,23 +1148,28 @@ If all of this passes, the Catalog context is complete and production-shaped.
 After completing Phase 6, your e-commerce project should have:
 
 - [ ] Spring Boot application in the `catalog` module with DI wired up
-- [ ] `ProductService` with constructor-injected dependencies
+- [ ] Hexagonal architecture with package-by-use-case organization
+- [ ] Command handlers (`AddToCatalogHandler`, `RepriceProductHandler`, `DiscontinueProductHandler`)
+- [ ] Query handlers (`LookupProductHandler`, `SearchCatalogHandler`)
+- [ ] Vocabulary packages (`product/`, `category/`) with ports (`ProductRepository` interface)
+- [ ] REST entry point: `CatalogController` in `api/`
+- [ ] Database implementation: `PostgresProductRepository` in `infrastructure/persistence/`
 - [ ] Full CRUD REST API for products with validation and error handling
-- [ ] JPA entities mapped to domain objects, kept in persistence packages
+- [ ] JPA entities mapped to domain objects at the infrastructure boundary
 - [ ] Flyway migrations for product and category tables
 - [ ] Testcontainers PostgreSQL in all database tests
 - [ ] Contract tests proving fake and real repositories behave identically
-- [ ] ArchUnit rules enforcing architectural boundaries
+- [ ] ArchUnit rules enforcing dependency direction (vocabulary → nothing, infrastructure → vocabulary)
 - [ ] Logback configured for ecosystem output, OTel spans for your own instrumentation
 - [ ] `Money`, `DateRange`, `Promotion` value objects with test coverage
-- [ ] Full test pyramid: domain → service → controller → repository → integration
+- [ ] Outside-in test pyramid: handlers (fakes) → adapters → contract → integration
 - [ ] All tests passing with `./gradlew clean build`
 
 **Consider:**
 1. How does Spring's DI compare to Angular's? What's better, what's worse?
-2. The entity-to-domain mapping at the repository boundary — is it worth the overhead?
-   What would break if you used JPA entities as your domain model?
-3. Where in the test pyramid did you find bugs? Which layer's tests gave you the most
-   confidence?
+2. The entity-to-domain mapping at the adapter boundary — is it worth the overhead? What
+   would break if you used JPA entities as your domain model?
+3. The vocabulary/use-case/infrastructure split gives you real encapsulation via
+   package-private. Did you find cases where it felt like overhead? Where did it pay off?
 4. How does the `Clock` injection pattern compare to mocking `Date.now()` in TS?
 5. What ADRs should you write for decisions you made in this phase?
