@@ -92,6 +92,14 @@ catalog/src/main/java/tech/reactiv/ecommerce/catalog/
   category/
     Category.java
     CategoryId.java
+  promotion/                         ← vocabulary
+    Promotion.java
+    PromotionId.java
+    PromotionTarget.java             ← sealed: AllProducts, ByCategory, ByProducts
+    PromotionRepository.java         ← port (interface)
+  createpromotion/
+    CreatePromotionHandler.java
+    CreatePromotionCommand.java
   api/                               ← REST entry point
     CatalogController.java
     CatalogExceptionHandler.java
@@ -330,9 +338,10 @@ Spring configures beans based on what's available.
    `Map<ProductId, Product>` as a public accessor.
 
 3. **Create the `addtocatalog/` package:**
-   - `AddToCatalogCommand` (record with name, description, price)
+   - `AddToCatalogCommand` (record with name, description, `BigDecimal price`)
    - `AddToCatalogHandler` (annotated `@Component`, takes `ProductRepository` via
      constructor, returns `ProductId`)
+   - `Product.price()` returns `BigDecimal` for now — you'll refactor to `Money` in 6.3b
 
 4. **Test it** — verify the handler saves a product and returns its ID. Assert against
    the fake's backing map, not through repository query methods.
@@ -362,7 +371,7 @@ Test each handler against the `InMemoryProductRepository`.
 
 ---
 
-## 6.3 — Domain Value Objects
+## 6.3 — Promotions
 
 ### Read First
 
@@ -402,16 +411,29 @@ LocalDate today = LocalDate.now();
 LocalDate nextWeek = today.plusWeeks(1);  // today is unchanged
 ```
 
+You'll use `LocalDate` for promotion active periods and `Clock` for testable time — both
+introduced in the exercises below.
+
 **`Clock` — testable time:**
 
 `LocalDate.now()` uses the system clock. In tests, inject a `Clock`:
 
 ```java
 public class Promotion {
+    private final PromotionId id;
+    private final String description;
+    private final BigDecimal discountPercentage;
     private final DateRange activePeriod;
+    private final PromotionTarget target;
 
     public boolean isActive(Clock clock) {
         return activePeriod.contains(LocalDate.now(clock));
+    }
+
+    public Money apply(Money originalPrice) {
+        var discount = originalPrice.multiply(discountPercentage)
+            .divide(new BigDecimal("100"));
+        return originalPrice.subtract(discount);
     }
 }
 ```
@@ -434,51 +456,47 @@ BigDecimal total = price.multiply(BigDecimal.valueOf(3));  // 59.97
 **Watch out:** `new BigDecimal("1.0").equals(new BigDecimal("1.00"))` returns `false` —
 they have different scales. Use `compareTo() == 0` for value equality.
 
-### Exercise 6.3a — `Money` value object
+### Exercise 6.3a — Create a promotion
 
-1. **Create a `Money` record** in `common` (it'll be used across modules):
-   - Fields: `BigDecimal amount`, `Currency currency` (use `java.util.Currency`)
-   - Methods: `add(Money)`, `subtract(Money)`, `multiply(int quantity)`
-   - Throw if currencies don't match on add/subtract
-   - Compact constructor: validate amount is not null
+The Catalog needs promotions — discounts that apply to products for a limited time. This
+drives several new types.
 
-2. **Write tests.** Think about:
-   - Adding/subtracting same currency
-   - Currency mismatch throws
-   - Multiplying by quantity
-   - Zero and negative amounts
-   - Scale comparison edge case
+1. **Create the `promotion/` vocabulary package:**
+   - `PromotionId` (record wrapping `UUID`, same pattern as `ProductId`)
+   - `PromotionTarget` — a sealed interface with data-only record implementations:
+     ```java
+     public sealed interface PromotionTarget
+         permits AllProducts, ByCategory, ByProducts {
+         record AllProducts() implements PromotionTarget {}
+         record ByCategory(CategoryId categoryId) implements PromotionTarget {}
+         record ByProducts(Set<ProductId> productIds) implements PromotionTarget {}
+     }
+     ```
+     `PromotionTarget` is pure data — no `appliesTo(Product)` method. Filtering logic
+     lives in the repository implementations (Java for the fake, SQL for the real one),
+     keeping matching logic in one place per adapter rather than duplicated across both.
+   - `Promotion` — class with `PromotionId`, description, discount percentage
+     (`BigDecimal`), `DateRange`, and `PromotionTarget`
+   - `PromotionRepository` — port interface with `save(Promotion)` (more methods in 6.3c)
 
-**Hints:**
-- `Currency.getInstance("USD")` gets a currency by ISO code
-- `BigDecimal` arithmetic: `amount.add(other)`, `amount.subtract(other)`,
-  `amount.multiply(BigDecimal.valueOf(quantity))`
-- For equality in tests, either use `compareTo` or `stripTrailingZeros()` before comparing
-
-### Exercise 6.3b — `DateRange` value object
-
-1. **Create a `DateRange` record** in `common`:
+2. **Create `DateRange` record** in `common` — Promotion needs an active period, which
+   drives this value object:
    - Fields: `LocalDate start`, `LocalDate end`
-   - Validation: `start` must not be after `end`
+   - Compact constructor: validate `start` is not after `end`
    - Methods: `contains(LocalDate)`, `overlaps(DateRange)`, `duration()` (returns `Period`)
 
-2. **Write tests** for:
-   - Containment (inside, outside, on boundaries)
-   - Overlap detection (overlapping, non-overlapping, adjacent, contained)
-   - Same start/end (single-day range)
+3. **Add `isActive(Clock)` to `Promotion`** — delegates to `DateRange.contains()`.
 
-**Hints:**
-- Two ranges overlap if `start1 <= end2 AND start2 <= end1`
-- `Period.between(start, end)` for duration
-- Use `isBefore()` / `isAfter()` — don't compare with `<` / `>`
+4. **Create `InMemoryPromotionRepository`** in test source — `save` and a backing map.
 
-### Exercise 6.3c — `Promotion` with time-aware logic
+5. **Create the `createpromotion/` use-case package:**
+   - `CreatePromotionCommand` (record: description, discount percentage, start date, end
+     date, `PromotionTarget`)
+   - `CreatePromotionHandler` (`@Component`, takes `PromotionRepository`, returns
+     `PromotionId`)
 
-1. **Create a `Promotion` class** in `catalog`'s `domain/` package:
-   - Fields: description, discount percentage (`BigDecimal`), `DateRange`
-   - Method: `isActive(Clock)` — is the promotion currently active?
-
-2. **Write tests** using `Clock.fixed(...)`:
+6. **Test the handler** — verify it saves a promotion and returns its ID. Then **edge-case
+   test `isActive` directly** with `Clock.fixed(...)`:
    - Before the promotion starts
    - During the promotion
    - After the promotion ends
@@ -486,9 +504,84 @@ they have different scales. Use `compareTo() == 0` for value equality.
 
 **Hints:**
 - `Clock.fixed(Instant.parse("2026-03-18T00:00:00Z"), ZoneId.of("UTC"))` creates a fixed
-  clock
-- `LocalDate.now(clock)` uses the injected clock
-- The promotion delegates to `DateRange.contains()` — keep the logic there
+  clock — this is the same pattern as injecting a fake repository
+- `LocalDate.now(clock)` uses the injected clock instead of the system clock
+- The `Promotion` delegates to `DateRange.contains()` — keep the date logic there
+- `DateRange` tests: containment (inside, outside, on boundaries), overlap detection
+  (overlapping, non-overlapping, adjacent, contained), same start/end (single-day range)
+- Two ranges overlap if `start1 <= end2 AND start2 <= end1`
+- `Period.between(start, end)` for duration
+- Use `isBefore()` / `isAfter()` — don't compare with `<` / `>`
+
+### Exercise 6.3b — Introduce `Money` and discount calculation
+
+`Promotion.apply()` needs to calculate a discounted price. Raw `BigDecimal` doesn't carry
+currency — time to introduce `Money`.
+
+1. **Create a `Money` record** in `common` (it'll be used across modules):
+   - Fields: `BigDecimal amount`, `Currency currency` (use `java.util.Currency`)
+   - Methods: `add(Money)`, `subtract(Money)`, `multiply(int quantity)`,
+     `multiply(BigDecimal factor)`
+   - Throw if currencies don't match on add/subtract
+   - Compact constructor: validate amount is not null
+
+2. **Add `Promotion.apply(Money)`** — calculates the discounted price. A 10% discount on
+   $100 returns $90.
+
+3. **Refactor `Product.price()`** from `BigDecimal` to `Money`. Update
+   `AddToCatalogCommand`, the handler, and tests. This is a deliberate refactoring moment —
+   the type was raw `BigDecimal` because you didn't need `Money` yet.
+
+4. **Test `Promotion.apply(Money)`:**
+   - 10% off a known price
+   - 0% discount (no change)
+   - 100% discount (free)
+   - Rounding behavior (e.g., 10% off $19.99)
+
+**Hints:**
+- `Currency.getInstance("USD")` gets a currency by ISO code
+- `BigDecimal` arithmetic: `amount.add(other)`, `amount.subtract(other)`,
+  `amount.multiply(BigDecimal.valueOf(quantity))`
+- For equality in tests, either use `compareTo` or `stripTrailingZeros()` before comparing
+- Use `RoundingMode.HALF_UP` for financial rounding — `setScale(2, RoundingMode.HALF_UP)`
+- The `Money` tests should also cover: adding/subtracting same currency, currency mismatch
+  throws, multiplying by quantity, zero and negative amounts, scale comparison edge case
+
+### Exercise 6.3c — Look up a product with promotions
+
+A product lookup should return the effective price — the original price with any active
+promotions applied. No separate "find promotions for product" handler — just update the
+existing `LookupProductHandler`.
+
+1. **Add `findActiveForProduct(ProductId, CategoryId, Clock)` to `PromotionRepository`.**
+
+2. **Implement in `InMemoryPromotionRepository`** — filter the backing map by inspecting
+   `PromotionTarget`:
+   - `AllProducts` → always matches
+   - `ByCategory(categoryId)` → matches if category matches
+   - `ByProducts(productIds)` → matches if product ID is in the set
+   - Then filter by `isActive(clock)`
+
+3. **Update `LookupProductHandler`** to take `PromotionRepository` and `Clock` as
+   constructor dependencies. When looking up a product:
+   - Find active promotions for that product
+   - Apply the best (highest) discount
+   - Return the product with its effective price
+
+4. **Test scenarios:**
+   - No active promotions → original price
+   - One active promotion → discounted price
+   - Multiple promotions → best discount wins
+   - Expired promotion → ignored
+   - Promotion targeting a different category → ignored
+
+**Hints:**
+- The handler already returns `Optional<Product>` — you might return a richer response
+  type or add the effective price to the product. Design choice is yours.
+- `InMemoryPromotionRepository.findActiveForProduct` uses pattern matching on the sealed
+  `PromotionTarget` — this is where the sealed interface pays off
+- The real `PostgresPromotionRepository` will do this filtering in SQL (6.5) — that's why
+  the matching logic isn't on `PromotionTarget` itself
 
 ---
 
@@ -633,6 +726,9 @@ controller needs.
      or 404)
    - `DELETE /api/products/{id}` — delegates to `DiscontinueProductHandler` (returns 204
      or 404)
+   - `POST /api/promotions` — delegates to `CreatePromotionHandler` (returns 201)
+   - Note: `GET /api/products/{id}` now returns effective price (from `LookupProductHandler`
+     which queries active promotions — wired in 6.3c)
 
 3. **Create `CatalogExceptionHandler`** in `api/` with `@ControllerAdvice` — maps
    exceptions to HTTP status codes (not-found → 404, validation → 400).
@@ -767,7 +863,13 @@ for both.
 4. **Write `V3__add_category_to_product.sql`:**
    - `ALTER TABLE product ADD COLUMN category_id UUID REFERENCES category(id)`
 
-5. **Write a test** using Testcontainers that runs the migrations and verifies the tables
+5. **Write `V4__create_promotion_table.sql`:**
+   - `id UUID PRIMARY KEY`, `description VARCHAR(255) NOT NULL`,
+     `discount_percentage DECIMAL(5,2) NOT NULL`, `start_date DATE NOT NULL`,
+     `end_date DATE NOT NULL`, `target_type VARCHAR(50) NOT NULL`,
+     `target_data JSONB` (holds category ID or product ID set, null for `AllProducts`)
+
+6. **Write a test** using Testcontainers that runs the migrations and verifies the tables
    exist.
 
 **Hints:**
@@ -796,15 +898,29 @@ observe Flyway's checksum error. This is why migrations are immutable.
 
 2. **Create `CategoryEntity`** similarly.
 
-3. **Create `JpaProductRepository`** extending `JpaRepository<ProductEntity, UUID>`:
+3. **Create `PromotionEntity`** in `infrastructure/persistence/`:
+   - Fields matching the V4 migration schema
+   - `target_type` stores the sealed type name (`ALL_PRODUCTS`, `BY_CATEGORY`,
+     `BY_PRODUCTS`), `target_data` stores the JSONB payload
+   - `toDomain()` reconstructs the sealed `PromotionTarget` from `target_type` +
+     `target_data`
+   - `fromDomain(Promotion)` maps in the other direction
+
+4. **Create `JpaProductRepository`** extending `JpaRepository<ProductEntity, UUID>`:
    - `findByCategoryIdAndActiveTrue(UUID categoryId)`
    - `findByActiveTrue()`
 
-4. **Create `PostgresProductRepository`** implementing `ProductRepository`:
+5. **Create `PostgresProductRepository`** implementing `ProductRepository`:
    - Wraps `JpaProductRepository`, maps between entity and domain objects
 
-5. **Test with `@DataJpaTest`** + Testcontainers — save a product, retrieve it, assert the
-   domain object round-trips correctly. Test category filtering.
+6. **Create `PostgresPromotionRepository`** implementing `PromotionRepository`:
+   - `findActiveForProduct(ProductId, CategoryId, Clock)` uses SQL to filter by target
+     type, target data, and active date range — the SQL equivalent of the Java filtering
+     in `InMemoryPromotionRepository`
+
+7. **Test with `@DataJpaTest`** + Testcontainers — save a product, retrieve it, assert the
+   domain object round-trips correctly. Test category filtering. Test promotion round-trip
+   including `PromotionTarget` serialization.
 
 **Hints:**
 - For `@DataJpaTest` with Testcontainers, use `@DynamicPropertySource`:
@@ -830,6 +946,11 @@ observe Flyway's checksum error. This is why migrations are immutable.
 
 3. **`PostgresProductRepositoryTest`** extends the contract, provides the real
    implementation with Testcontainers.
+
+4. **Do the same for `PromotionRepository`** — extract a `PromotionRepositoryContract`,
+   run it against both `InMemoryPromotionRepository` and `PostgresPromotionRepository`.
+   Key scenarios: save/retrieve, `findActiveForProduct` with each `PromotionTarget` variant,
+   expired promotions excluded.
 
 Same pattern as `LoanRepository` in the library project.
 
@@ -1102,6 +1223,7 @@ the entire request path from HTTP through command handler to database and back.
    - List products, filter by category
    - Update a product, verify changes persist
    - Soft-delete, verify it no longer appears in listings
+   - Create a promotion, look up a product, verify effective price reflects the discount
 
 2. **Verify the full test coverage:**
    - Domain: `Money`, `DateRange`, `Promotion` tests (no Spring)
@@ -1126,18 +1248,21 @@ Run through this checklist:
 
 1. **`./gradlew clean build`** — all modules compile, all tests pass
 2. **CRUD API works** — create, read, list, filter, update, soft-delete products
-3. **Hexagonal structure** — domain defines ports, adapters implement them, dependencies
+3. **Promotions work** — create a promotion, look up a product with effective price,
+   sealed `PromotionTarget` drives filtering, `Money` used for prices
+4. **Hexagonal structure** — domain defines ports, adapters implement them, dependencies
    point inward
-4. **Package-by-use-case** — each command/query owns its handler, internal classes are
+5. **Package-by-use-case** — each command/query owns its handler, internal classes are
    package-private
-5. **Flyway migrations** run against Testcontainers PostgreSQL
-6. **Contract tests** pass on both fake and real repository implementations
-7. **ArchUnit rules** pass — vocabulary is clean, infrastructure isolated, dependency
+6. **Flyway migrations** run against Testcontainers PostgreSQL (including promotion table)
+7. **Contract tests** pass on both fake and real repository implementations (Product and
+   Promotion)
+8. **ArchUnit rules** pass — vocabulary is clean, infrastructure isolated, dependency
    direction enforced
-8. **Observability** — OTel spans appear with meaningful attributes, Logback output is
+9. **Observability** — OTel spans appear with meaningful attributes, Logback output is
    readable
-9. **Value objects** (`Money`, `DateRange`, `ProductId`) have test coverage
-10. **Integration tests** prove the full request path works
+10. **Value objects** (`Money`, `DateRange`, `ProductId`, `PromotionId`) have test coverage
+11. **Integration tests** prove the full request path works (including promotions)
 
 If all of this passes, the Catalog context is complete and production-shaped.
 
@@ -1149,19 +1274,22 @@ After completing Phase 6, your e-commerce project should have:
 
 - [ ] Spring Boot application in the `catalog` module with DI wired up
 - [ ] Hexagonal architecture with package-by-use-case organization
-- [ ] Command handlers (`AddToCatalogHandler`, `RepriceProductHandler`, `DiscontinueProductHandler`)
-- [ ] Query handlers (`LookupProductHandler`, `SearchCatalogHandler`)
-- [ ] Vocabulary packages (`product/`, `category/`) with ports (`ProductRepository` interface)
-- [ ] REST entry point: `CatalogController` in `api/`
-- [ ] Database implementation: `PostgresProductRepository` in `infrastructure/persistence/`
+- [ ] Command handlers (`AddToCatalogHandler`, `RepriceProductHandler`, `DiscontinueProductHandler`, `CreatePromotionHandler`)
+- [ ] Query handlers (`LookupProductHandler` with effective price, `SearchCatalogHandler`)
+- [ ] Vocabulary packages (`product/`, `category/`, `promotion/`) with ports (`ProductRepository`, `PromotionRepository`)
+- [ ] Sealed `PromotionTarget` (`AllProducts`, `ByCategory`, `ByProducts`) — data only, filtering in repository adapters
+- [ ] `Money` value object in `common` — `Product.price()` refactored from `BigDecimal` to `Money`
+- [ ] `DateRange` value object in `common` — `Promotion.isActive(Clock)` delegates to `DateRange.contains()`
+- [ ] REST entry point: `CatalogController` in `api/` (including `POST /api/promotions`)
+- [ ] Product lookup returns effective price (original price with best active promotion applied)
+- [ ] Database implementation: `PostgresProductRepository`, `PostgresPromotionRepository` in `infrastructure/persistence/`
 - [ ] Full CRUD REST API for products with validation and error handling
-- [ ] JPA entities mapped to domain objects at the infrastructure boundary
-- [ ] Flyway migrations for product and category tables
+- [ ] JPA entities (`ProductEntity`, `CategoryEntity`, `PromotionEntity`) mapped to domain objects at the boundary
+- [ ] Flyway migrations for product, category, and promotion tables
 - [ ] Testcontainers PostgreSQL in all database tests
-- [ ] Contract tests proving fake and real repositories behave identically
+- [ ] Contract tests proving fake and real repositories behave identically (Product and Promotion)
 - [ ] ArchUnit rules enforcing dependency direction (vocabulary → nothing, infrastructure → vocabulary)
 - [ ] Logback configured for ecosystem output, OTel spans for your own instrumentation
-- [ ] `Money`, `DateRange`, `Promotion` value objects with test coverage
 - [ ] Outside-in test pyramid: handlers (fakes) → adapters → contract → integration
 - [ ] All tests passing with `./gradlew clean build`
 
