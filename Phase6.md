@@ -456,13 +456,21 @@ BigDecimal total = price.multiply(BigDecimal.valueOf(3));  // 59.97
 **Watch out:** `new BigDecimal("1.0").equals(new BigDecimal("1.00"))` returns `false` —
 they have different scales. Use `compareTo() == 0` for value equality.
 
-### Exercise 6.3a — Create a promotion
+### Exercise 6.3a — Create a promotion (handler first)
 
-The Catalog needs promotions — discounts that apply to products for a limited time. This
-drives several new types.
+The Catalog needs promotions — discounts that apply to products for a limited time. Start
+from the use case.
 
-1. **Create the `promotion/` vocabulary package:**
-   - `PromotionId` (record wrapping `UUID`, same pattern as `ProductId`)
+1. **Test `CreatePromotionHandler`** — assert it saves a promotion and returns a
+   `PromotionId`.
+
+2. **Create the types the test needs:**
+   - `createpromotion/` use-case package: `CreatePromotionCommand` (record: description,
+     discount percentage as `BigDecimal`, start date, end date, `PromotionTarget`) and
+     `CreatePromotionHandler` (`@Component`, takes `PromotionRepository`, returns
+     `PromotionId`)
+   - `promotion/` vocabulary package: `PromotionId` (record wrapping `UUID`, same pattern
+     as `ProductId`), `PromotionTarget`, `Promotion`, `PromotionRepository`
    - `PromotionTarget` — a sealed interface with data-only record implementations:
      ```java
      public sealed interface PromotionTarget
@@ -477,26 +485,31 @@ drives several new types.
      keeping matching logic in one place per adapter rather than duplicated across both.
    - `Promotion` — class with `PromotionId`, description, discount percentage
      (`BigDecimal`), `DateRange`, and `PromotionTarget`
-   - `PromotionRepository` — port interface with `save(Promotion)` (more methods in 6.3c)
+   - `PromotionRepository` — port interface with `save(Promotion)` (more methods later)
+   - `DateRange` record in `common` — fields: `LocalDate start`, `LocalDate end`. Minimal
+     for now; you'll add methods in the next exercise.
 
-2. **Create `DateRange` record** in `common` — Promotion needs an active period, which
-   drives this value object:
-   - Fields: `LocalDate start`, `LocalDate end`
+3. **Create `InMemoryPromotionRepository`** in test source — `save` and a backing map.
+
+**Hints:**
+- The handler generates a `PromotionId`, builds a `Promotion` from the command, saves it,
+  and returns the ID. Keep it thin.
+
+### Exercise 6.3b — DateRange and isActive
+
+Promotions need to know whether they're active. Drive `DateRange` and
+`Promotion.isActive()` through tests.
+
+1. **Test `DateRange`:**
    - Compact constructor: validate `start` is not after `end`
-   - Methods: `contains(LocalDate)`, `overlaps(DateRange)`, `duration()` (returns `Period`)
+   - `contains(LocalDate)`: inside, outside, on start boundary, on end boundary
+   - `overlaps(DateRange)`: overlapping, non-overlapping, adjacent, one contained within
+     the other
+   - `duration()` (returns `Period`): normal range, single-day range (same start and end)
 
-3. **Add `isActive(Clock)` to `Promotion`** — delegates to `DateRange.contains()`.
+2. **Add `isActive(Clock)` to `Promotion`** — delegates to `DateRange.contains()`.
 
-4. **Create `InMemoryPromotionRepository`** in test source — `save` and a backing map.
-
-5. **Create the `createpromotion/` use-case package:**
-   - `CreatePromotionCommand` (record: description, discount percentage, start date, end
-     date, `PromotionTarget`)
-   - `CreatePromotionHandler` (`@Component`, takes `PromotionRepository`, returns
-     `PromotionId`)
-
-6. **Test the handler** — verify it saves a promotion and returns its ID. Then **edge-case
-   test `isActive` directly** with `Clock.fixed(...)`:
+3. **Test `isActive`** with `Clock.fixed(...)`:
    - Before the promotion starts
    - During the promotion
    - After the promotion ends
@@ -506,37 +519,30 @@ drives several new types.
 - `Clock.fixed(Instant.parse("2026-03-18T00:00:00Z"), ZoneId.of("UTC"))` creates a fixed
   clock — this is the same pattern as injecting a fake repository
 - `LocalDate.now(clock)` uses the injected clock instead of the system clock
-- The `Promotion` delegates to `DateRange.contains()` — keep the date logic there
-- `DateRange` tests: containment (inside, outside, on boundaries), overlap detection
-  (overlapping, non-overlapping, adjacent, contained), same start/end (single-day range)
 - Two ranges overlap if `start1 <= end2 AND start2 <= end1`
 - `Period.between(start, end)` for duration
 - Use `isBefore()` / `isAfter()` — don't compare with `<` / `>`
 
-### Exercise 6.3b — Introduce `Money` and discount calculation
+### Exercise 6.3c — Money and discount calculation
 
-`Promotion.apply()` needs to calculate a discounted price. Raw `BigDecimal` doesn't carry
-currency — time to introduce `Money`.
+`Promotion` needs to calculate discounted prices. Raw `BigDecimal` doesn't carry currency.
 
-1. **Create a `Money` record** in `common` (it'll be used across modules):
+1. **Test `Money`:**
    - Fields: `BigDecimal amount`, `Currency currency` (use `java.util.Currency`)
-   - Methods: `add(Money)`, `subtract(Money)`, `multiply(int quantity)`,
-     `multiply(BigDecimal factor)`
-   - Throw if currencies don't match on add/subtract
    - Compact constructor: validate amount is not null
+   - `add(Money)`, `subtract(Money)`: same currency works, mismatched currencies throw
+   - `multiply(int quantity)`, `multiply(BigDecimal factor)`
+   - Zero and negative amounts, scale comparison edge case
 
-2. **Add `Promotion.apply(Money)`** — calculates the discounted price. A 10% discount on
-   $100 returns $90.
+2. **Test `Promotion.apply(Money)`:**
+   - 10% off a known price (e.g., 10% off $100 → $90)
+   - 0% discount (no change)
+   - 100% discount (free)
+   - Rounding behavior (e.g., 10% off $19.99)
 
 3. **Refactor `Product.price()`** from `BigDecimal` to `Money`. Update
    `AddToCatalogCommand`, the handler, and tests. This is a deliberate refactoring moment —
    the type was raw `BigDecimal` because you didn't need `Money` yet.
-
-4. **Test `Promotion.apply(Money)`:**
-   - 10% off a known price
-   - 0% discount (no change)
-   - 100% discount (free)
-   - Rounding behavior (e.g., 10% off $19.99)
 
 **Hints:**
 - `Currency.getInstance("USD")` gets a currency by ISO code
@@ -544,36 +550,34 @@ currency — time to introduce `Money`.
   `amount.multiply(BigDecimal.valueOf(quantity))`
 - For equality in tests, either use `compareTo` or `stripTrailingZeros()` before comparing
 - Use `RoundingMode.HALF_UP` for financial rounding — `setScale(2, RoundingMode.HALF_UP)`
-- The `Money` tests should also cover: adding/subtracting same currency, currency mismatch
-  throws, multiplying by quantity, zero and negative amounts, scale comparison edge case
 
-### Exercise 6.3c — Look up a product with promotions
+### Exercise 6.3d — Look up a product with promotions
 
-A product lookup should return the effective price — the original price with any active
-promotions applied. No separate "find promotions for product" handler — just update the
-existing `LookupProductHandler`.
+A product lookup should return the effective price with any active promotions applied. No
+separate "find promotions for product" handler — update the existing
+`LookupProductHandler`.
 
-1. **Add `findActiveForProduct(ProductId, CategoryId, Clock)` to `PromotionRepository`.**
+1. **Test the updated handler:**
+   - No active promotions → original price
+   - One active promotion → discounted price
+   - Multiple promotions → best discount wins
+   - Expired promotion → ignored
+   - Promotion targeting a different category → ignored
 
-2. **Implement in `InMemoryPromotionRepository`** — filter the backing map by inspecting
+2. **Add `findActiveForProduct(ProductId, CategoryId, Clock)` to `PromotionRepository`.**
+
+3. **Implement in `InMemoryPromotionRepository`** — filter the backing map by inspecting
    `PromotionTarget`:
    - `AllProducts` → always matches
    - `ByCategory(categoryId)` → matches if category matches
    - `ByProducts(productIds)` → matches if product ID is in the set
    - Then filter by `isActive(clock)`
 
-3. **Update `LookupProductHandler`** to take `PromotionRepository` and `Clock` as
+4. **Update `LookupProductHandler`** to take `PromotionRepository` and `Clock` as
    constructor dependencies. When looking up a product:
    - Find active promotions for that product
    - Apply the best (highest) discount
    - Return the product with its effective price
-
-4. **Test scenarios:**
-   - No active promotions → original price
-   - One active promotion → discounted price
-   - Multiple promotions → best discount wins
-   - Expired promotion → ignored
-   - Promotion targeting a different category → ignored
 
 **Hints:**
 - The handler already returns `Optional<Product>` — you might return a richer response

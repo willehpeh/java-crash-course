@@ -316,9 +316,13 @@ build independently, using Claude Code as a resource when needed.
 - `@Configuration` + `@Bean` — manual wiring, `@Profile` for environment-specific adapters
 - TDD: write handler tests first, then implement to make them pass
 
-### 6.3 Domain Value Objects
-- `java.time` — `Instant` for timestamps, `LocalDate` for date ranges, `Clock` for testable time
-- `Money` value object (`BigDecimal` + `Currency`), `DateRange`, `Promotion`
+### 6.3 Promotions
+- Use-case-driven: `CreatePromotionHandler` drives `Promotion`, `PromotionTarget` (sealed),
+  `DateRange`, `PromotionRepository`, `InMemoryPromotionRepository`
+- `Money` introduced as a refactor when `Promotion.apply()` needs discount math — refactors
+  `Product.price()` from `BigDecimal` to `Money`
+- `LookupProductHandler` updated to return effective price (queries active promotions)
+- `java.time` (`LocalDate`, `Clock`), `BigDecimal` gotchas taught in context
 
 ### 6.4 Spring Web — REST APIs
 - `CatalogController` in `api/` — injects command/query handlers, not a monolithic service
