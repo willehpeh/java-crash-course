@@ -329,28 +329,28 @@ Spring configures beans based on what's available.
 
 ### Exercise 6.2b — First command: add to catalog
 
-1. **Create the vocabulary packages:**
+1. **Test `AddToCatalogHandler`** — assert it saves a product and returns its ID. Assert
+   against the fake's backing map, not through repository query methods.
+
+2. **Create the types the test needs:**
    - `product/` — `ProductId` (record), `Product`, `ProductRepository` (port interface
      with `save`, `findById`, `findAll`, `findByCategory`)
    - `category/` — `CategoryId` (record), `Category`
+   - `addtocatalog/` — `AddToCatalogCommand` (record with name, description,
+     `BigDecimal price`), `AddToCatalogHandler` (annotated `@Component`, takes
+     `ProductRepository` via constructor, returns `ProductId`)
+   - `Product.price()` returns `BigDecimal` for now — you'll refactor to `Money` in 6.3c
 
-2. **Create `InMemoryProductRepository`** in the test source tree — expose the backing
+3. **Create `InMemoryProductRepository`** in the test source tree — expose the backing
    `Map<ProductId, Product>` as a public accessor.
-
-3. **Create the `addtocatalog/` package:**
-   - `AddToCatalogCommand` (record with name, description, `BigDecimal price`)
-   - `AddToCatalogHandler` (annotated `@Component`, takes `ProductRepository` via
-     constructor, returns `ProductId`)
-   - `Product.price()` returns `BigDecimal` for now — you'll refactor to `Money` in 6.3b
-
-4. **Test it** — verify the handler saves a product and returns its ID. Assert against
-   the fake's backing map, not through repository query methods.
 
 **Hints:**
 - `ProductId.generate()` can wrap `UUID.randomUUID()`
 - The handler creates the domain object and delegates to the repository — keep it thin
 
 ### Exercise 6.2c — Remaining commands and queries
+
+For each handler below, write the test first, then build the command/query and handler.
 
 **Commands (write operations):**
 1. **`reprice/`** — `RepriceProductHandler` takes a `RepriceCommand` (product ID + new
@@ -362,8 +362,6 @@ Spring configures beans based on what's available.
 3. **`lookup/`** — `LookupProductHandler` takes a `ProductId`, returns `Optional<Product>`.
 4. **`search/`** — `SearchCatalogHandler` takes a `SearchCatalogQuery` (optional category
    filter), returns `List<Product>`.
-
-Test each handler against the `InMemoryProductRepository`.
 
 **Hints:**
 - Share the same `InMemoryProductRepository` instance across handlers in tests — seed it
@@ -732,7 +730,7 @@ controller needs.
      or 404)
    - `POST /api/promotions` — delegates to `CreatePromotionHandler` (returns 201)
    - Note: `GET /api/products/{id}` now returns effective price (from `LookupProductHandler`
-     which queries active promotions — wired in 6.3c)
+     which queries active promotions — wired in 6.3d)
 
 3. **Create `CatalogExceptionHandler`** in `api/` with `@ControllerAdvice` — maps
    exceptions to HTTP status codes (not-found → 404, validation → 400).
