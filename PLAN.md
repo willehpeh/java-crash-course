@@ -317,7 +317,7 @@ build independently, using Claude Code as a resource when needed.
 - TDD: write handler tests first, then implement to make them pass
 
 ### 6.3 Promotions
-- Use-case-driven: `CreatePromotionHandler` drives `Promotion`, `PromotionTarget` (sealed),
+- Use-case-driven: `SchedulePromotionHandler` drives `Promotion`, `PromotionTarget` (sealed),
   `DateRange`, `PromotionRepository`, `InMemoryPromotionRepository`
 - `Money` introduced as a refactor when `Promotion.apply()` needs discount math — refactors
   `Product.price()` from `BigDecimal` to `Money`

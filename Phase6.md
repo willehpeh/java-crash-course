@@ -71,45 +71,58 @@ owns its handler, its command/query object, and any internal helpers. Internal c
 **Catalog module structure:**
 
 ```
-catalog/src/main/java/tech/reactiv/ecommerce/catalog/
-  addtocatalog/
-    AddToCatalogHandler.java         ← command handler, package-private internals
-    AddToCatalogCommand.java         ← command
-  discontinue/
-    DiscontinueProductHandler.java
-  reprice/
-    RepriceProductHandler.java
-    RepriceCommand.java
-  search/
-    SearchCatalogHandler.java
-    SearchCatalogQuery.java
-  lookup/
-    LookupProductHandler.java
-  product/                           ← vocabulary
-    Product.java
-    ProductId.java
-    ProductRepository.java           ← port (interface)
-  category/
-    Category.java
-    CategoryId.java
-  promotion/                         ← vocabulary
-    Promotion.java
-    PromotionId.java
-    PromotionTarget.java             ← sealed: AllProducts, ByCategory, ByProducts
-    PromotionRepository.java         ← port (interface)
-  createpromotion/
-    CreatePromotionHandler.java
-    CreatePromotionCommand.java
-  api/                               ← REST entry point
-    CatalogController.java
-    CatalogExceptionHandler.java
-  infrastructure/
-    persistence/                     ← database implementation
-      ProductEntity.java
-      CategoryEntity.java
-      JpaProductRepository.java
-      PostgresProductRepository.java
+src/main/java/tech/reactiv/ecommerce/
+  ECommerceApplication.java            ← single @SpringBootApplication at the root
+  mediator/
+    Command.java
+    CommandHandler.java
+    Query.java
+    QueryHandler.java
+    Mediator.java
+    SpringMediator.java
+  catalog/
+    addtocatalog/
+      AddToCatalogHandler.java         ← command handler, package-private internals
+      AddToCatalogCommand.java         ← command
+    discontinue/
+      DiscontinueProductHandler.java
+    reprice/
+      RepriceProductHandler.java
+      RepriceCommand.java
+    search/
+      SearchCatalogHandler.java
+      SearchCatalogQuery.java
+    lookup/
+      LookupProductHandler.java
+    product/                           ← vocabulary
+      Product.java
+      ProductId.java
+      ProductRepository.java           ← port (interface)
+    category/
+      Category.java
+      CategoryId.java
+    promotion/                         ← vocabulary
+      Promotion.java
+      PromotionId.java
+      PromotionTarget.java             ← sealed: AllProducts, ByCategory, ByProducts
+      PromotionRepository.java         ← port (interface)
+    schedulepromotion/
+      SchedulePromotionHandler.java
+      SchedulePromotionCommand.java
+    api/                               ← REST entry point
+      CatalogController.java
+      CatalogExceptionHandler.java
+    infrastructure/
+      persistence/                     ← database implementation
+        ProductEntity.java
+        CategoryEntity.java
+        JpaProductRepository.java
+        PostgresProductRepository.java
 ```
+
+`ECommerceApplication` sits at the root package. Spring's component scan finds everything
+below it — catalog, mediator, and any future modules (orders, inventory) without extra
+configuration. One deployable, one context, modules are just packages.
 
 **What goes where:**
 
@@ -141,24 +154,24 @@ public class AddToCatalogHandler {
         this.repository = repository;
     }
 
-    public ProductId handle(AddToCatalogCommand command) {
+    public void handle(AddToCatalogCommand command) {
         var product = new Product(
-            ProductId.generate(),
+            command.productId(),
             command.name(),
             command.description(),
             command.price()
         );
         repository.save(product);
-        return product.id();
     }
 }
 ```
 
 **Testing approach:**
 
-Handler tests use fake secondary adapters — no Spring context needed. Controller tests
-(`@WebMvcTest`) verify HTTP wiring with mocked handlers. Contract tests prove the fake
-repository matches the real implementation.
+Handler tests use fake secondary adapters — no Spring context needed. Acceptance tests
+(`@SpringBootTest` + Testcontainers) prove the full stack end-to-end. `@WebMvcTest` is
+reserved for exception-mapping logic. Contract tests prove the fake repository matches
+the real implementation.
 
 **For CQRS/ES modules later (Order, Inventory):**
 
@@ -315,38 +328,41 @@ Spring configures beans based on what's available.
    - Spring Boot manages its own dependency versions — you may want to use its BOM via
      `platform()`
 
-2. **Create `CatalogApplication.java`** in your base package (e.g.,
-   `tech.reactiv.ecommerce.catalog`):
+2. **Create `ECommerceApplication.java`** at the root package
+   (`tech.reactiv.ecommerce`):
    - Annotate with `@SpringBootApplication`
    - No `main` method needed yet — `@SpringBootTest` bootstraps the context for tests.
-     You'll add `main` in 6.4a when you have endpoints to hit.
+     You'll add `main` in 6.4b when you have endpoints to hit.
+   - This is the **single entry point** for the whole modulith — catalog, mediator, and
+     any future modules all live under this package.
 
 **Hints:**
 - `@SpringBootApplication` is a shortcut for `@Configuration` + `@EnableAutoConfiguration`
   + `@ComponentScan`
-- Spring scans the package of this class and everything below it — make sure your use case
-  and vocabulary packages are descendants
+- Spring scans the package of this class and everything below it — placing it at the root
+  means all modules are discovered automatically
 
 ### Exercise 6.2b — First command: add to catalog
 
-1. **Test `AddToCatalogHandler`** — assert it saves a product and returns its ID. Assert
-   against the fake's backing map, not through repository query methods.
+1. **Test `AddToCatalogHandler`** — assert the saved product matches the command (ID, name,
+   description, price). Assert against the fake's backing map, not through repository query
+   methods.
 
 2. **Create the types the test needs:**
    - `product/` — `ProductId` (record), `Product`, `ProductRepository` (port interface
      with `save`, `findById`, `findAll`, `findByCategory`)
    - `category/` — `CategoryId` (record), `Category`
-   - `addtocatalog/` — `AddToCatalogCommand` (record with name, description,
-     `BigDecimal price`), `AddToCatalogHandler` (annotated `@Component`, takes
-     `ProductRepository` via constructor, returns `ProductId`)
+   - `addtocatalog/` — `AddToCatalogCommand` (record with `ProductId`, name, description,
+     `BigDecimal price`), `AddToCatalogHandler` (`@Component`, takes `ProductRepository`
+     via constructor, void return)
    - `Product.price()` returns `BigDecimal` for now — you'll refactor to `Money` in 6.3c
 
 3. **Create `InMemoryProductRepository`** in the test source tree — expose the backing
    `Map<ProductId, Product>` as a public accessor.
 
 **Hints:**
-- `ProductId.generate()` can wrap `UUID.randomUUID()`
-- The handler creates the domain object and delegates to the repository — keep it thin
+- `ProductId.generate()` can wrap `UUID.randomUUID()` — the caller generates the ID
+- The handler builds the domain object from the command and saves it — keep it thin
 
 ### Exercise 6.2c — Remaining commands and queries
 
@@ -420,18 +436,14 @@ introduced in the exercises below.
 public class Promotion {
     private final PromotionId id;
     private final String description;
-    private final BigDecimal discountPercentage;
+    private final int discountPercentage;
     private final DateRange activePeriod;
     private final PromotionTarget target;
 
-    public boolean isActive(Clock clock) {
-        return activePeriod.contains(LocalDate.now(clock));
-    }
-
     public Money apply(Money originalPrice) {
-        var discount = originalPrice.multiply(discountPercentage)
-            .divide(new BigDecimal("100"));
-        return originalPrice.subtract(discount);
+        var factor = BigDecimal.valueOf(100 - discountPercentage)
+            .divide(BigDecimal.valueOf(100));
+        return originalPrice.multiply(factor);
     }
 }
 ```
@@ -454,22 +466,25 @@ BigDecimal total = price.multiply(BigDecimal.valueOf(3));  // 59.97
 **Watch out:** `new BigDecimal("1.0").equals(new BigDecimal("1.00"))` returns `false` —
 they have different scales. Use `compareTo() == 0` for value equality.
 
-### Exercise 6.3a — Create a promotion (handler first)
+### Exercise 6.3a — Schedule a promotion (handler first)
 
 The Catalog needs promotions — discounts that apply to products for a limited time. Start
-from the use case.
+from the use case. You'll need to create several types to get the test compiling — work
+through the compiler errors one at a time.
 
-1. **Test `CreatePromotionHandler`** — assert it saves a promotion and returns a
-   `PromotionId`.
+1. **Write a test for `SchedulePromotionHandler`**: construct a command, call the handler,
+   assert the saved promotion matches the command (ID, description, discount, dates,
+   target). This needs an `InMemoryPromotionRepository` — create it with `save` and a
+   backing map you can inspect.
 
-2. **Create the types the test needs:**
-   - `createpromotion/` use-case package: `CreatePromotionCommand` (record: description,
-     discount percentage as `BigDecimal`, start date, end date, `PromotionTarget`) and
-     `CreatePromotionHandler` (`@Component`, takes `PromotionRepository`, returns
-     `PromotionId`)
-   - `promotion/` vocabulary package: `PromotionId` (record wrapping `UUID`, same pattern
-     as `ProductId`), `PromotionTarget`, `Promotion`, `PromotionRepository`
-   - `PromotionTarget` — a sealed interface with data-only record implementations:
+2. **Work through the types the test needs to compile:**
+   - `SchedulePromotionCommand` (record: `PromotionId`, description, discount percentage
+     as `int`, start date, end date, `PromotionTarget`) — in
+     `schedulepromotion/`
+   - `SchedulePromotionHandler` (takes `PromotionRepository`, void return) — in
+     `schedulepromotion/`
+   - `PromotionId` (record wrapping `UUID`) — in `promotion/`
+   - `PromotionTarget` — sealed interface in `promotion/`:
      ```java
      public sealed interface PromotionTarget
          permits AllProducts, ByCategory, ByProducts {
@@ -478,45 +493,35 @@ from the use case.
          record ByProducts(Set<ProductId> productIds) implements PromotionTarget {}
      }
      ```
-     `PromotionTarget` is pure data — no `appliesTo(Product)` method. Filtering logic
-     lives in the repository implementations (Java for the fake, SQL for the real one),
-     keeping matching logic in one place per adapter rather than duplicated across both.
-   - `Promotion` — class with `PromotionId`, description, discount percentage
-     (`BigDecimal`), `DateRange`, and `PromotionTarget`
-   - `PromotionRepository` — port interface with `save(Promotion)` (more methods later)
-   - `DateRange` record in `common` — fields: `LocalDate start`, `LocalDate end`. Minimal
-     for now; you'll add methods in the next exercise.
-
-3. **Create `InMemoryPromotionRepository`** in test source — `save` and a backing map.
+     Pure data — no `appliesTo(Product)` method. Filtering logic lives in the repository
+     implementations (Java for the fake, SQL for the real one), keeping matching logic in
+     one place per adapter rather than duplicated across both.
+   - `Promotion` — class with `PromotionId`, description, discount percentage (`int`),
+     `LocalDate start`, `LocalDate end`, and `PromotionTarget` — in `promotion/`
+   - `PromotionRepository` — port interface with `save(Promotion)` — in `promotion/`
 
 **Hints:**
-- The handler generates a `PromotionId`, builds a `Promotion` from the command, saves it,
-  and returns the ID. Keep it thin.
+- The handler builds a `Promotion` from the command (which carries the `PromotionId`) and
+  saves it. Keep it thin.
 
-### Exercise 6.3b — DateRange and isActive
+### Exercise 6.3b — DateRange
 
-Promotions need to know whether they're active. Drive `DateRange` and
-`Promotion.isActive()` through tests.
+`Promotion` has raw `LocalDate start` and `end` fields — date-range containment is a
+standalone concept worth extracting.
 
-1. **Test `DateRange`:**
+1. **Test `DateRange` directly** — create a `DateRange` record in `common`:
    - Compact constructor: validate `start` is not after `end`
    - `contains(LocalDate)`: inside, outside, on start boundary, on end boundary
    - `overlaps(DateRange)`: overlapping, non-overlapping, adjacent, one contained within
      the other
    - `duration()` (returns `Period`): normal range, single-day range (same start and end)
 
-2. **Add `isActive(Clock)` to `Promotion`** — delegates to `DateRange.contains()`.
-
-3. **Test `isActive`** with `Clock.fixed(...)`:
-   - Before the promotion starts
-   - During the promotion
-   - After the promotion ends
-   - On the exact start and end dates (boundary)
+2. **Refactor `Promotion`** to hold a `DateRange activePeriod` instead of raw start/end
+   fields. The `Promotion` entity doesn't need to know whether it's "active" — that's a
+   query concern. The repository decides which promotions are active when filtering
+   (SQL in production, `DateRange.contains()` in the in-memory fake).
 
 **Hints:**
-- `Clock.fixed(Instant.parse("2026-03-18T00:00:00Z"), ZoneId.of("UTC"))` creates a fixed
-  clock — this is the same pattern as injecting a fake repository
-- `LocalDate.now(clock)` uses the injected clock instead of the system clock
 - Two ranges overlap if `start1 <= end2 AND start2 <= end1`
 - `Period.between(start, end)` for duration
 - Use `isBefore()` / `isAfter()` — don't compare with `<` / `>`
@@ -569,7 +574,7 @@ separate "find promotions for product" handler — update the existing
    - `AllProducts` → always matches
    - `ByCategory(categoryId)` → matches if category matches
    - `ByProducts(productIds)` → matches if product ID is in the set
-   - Then filter by `isActive(clock)`
+   - Then filter by `activePeriod().contains(LocalDate.now(clock))`
 
 4. **Update `LookupProductHandler`** to take `PromotionRepository` and `Clock` as
    constructor dependencies. When looking up a product:
@@ -608,41 +613,52 @@ request, call the handler, format the response.
 | Validation | class-validator / Joi | `@Valid` + Jakarta Bean Validation |
 | Controller class | NestJS `@Controller()` | `@RestController` |
 
-**Anatomy of a controller:**
+**Mediator pattern — decoupling controllers from handlers:**
+
+In NestJS you'd use `CommandBus` / `QueryBus`. In .NET, MediatR. Spring has no built-in
+equivalent, but it's straightforward to build one with Spring's DI and Java generics.
+
+The idea: the controller doesn't inject individual handlers. It injects a single `Mediator`
+and calls `mediator.command(...)` or `mediator.query(...)`. The mediator resolves the correct handler at runtime.
+
+```
+Controller  →  Mediator  →  CommandHandler<AddToCatalogCommand, Void>
+                          →  QueryHandler<LookupProductQuery, Optional<Product>>
+```
+
+This gives you one injection point per controller instead of N, and a natural place to add
+cross-cutting concerns later (logging, validation, metrics) without touching every handler.
+
+**Anatomy of a controller (with Mediator):**
 
 ```java
 @RestController
 @RequestMapping("/api/products")
 public class CatalogController {
-    private final AddToCatalogHandler addToCatalog;
-    private final LookupProductHandler lookupProduct;
-    private final SearchCatalogHandler searchCatalog;
+    private final Mediator mediator;
 
-    public CatalogController(AddToCatalogHandler addToCatalog,
-                             LookupProductHandler lookupProduct,
-                             SearchCatalogHandler searchCatalog) {
-        this.addToCatalog = addToCatalog;
-        this.lookupProduct = lookupProduct;
-        this.searchCatalog = searchCatalog;
+    public CatalogController(Mediator mediator) {
+        this.mediator = mediator;
     }
 
     @PostMapping
-    public ResponseEntity<ProductId> add(@Valid @RequestBody AddToCatalogCommand command) {
-        ProductId id = addToCatalog.handle(command);
-        return ResponseEntity.created(URI.create("/api/products/" + id.value())).body(id);
+    public ResponseEntity<Void> add(@Valid @RequestBody AddToCatalogCommand command) {
+        mediator.command(command);
+        return ResponseEntity.created(
+            URI.create("/api/products/" + command.productId().value())).build();
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<Product> getById(@PathVariable UUID id) {
-        return lookupProduct.handle(new ProductId(id))
+        return mediator.<Optional<Product>>query(new LookupProductQuery(new ProductId(id)))
             .map(ResponseEntity::ok)
             .orElse(ResponseEntity.notFound().build());
     }
 }
 ```
 
-The controller injects command and query handlers — not a monolithic service. Each endpoint
-delegates to the appropriate handler.
+The controller injects a single `Mediator` — not individual handlers. Each endpoint
+delegates via `mediator.command(...)` or `mediator.query(...)`.
 
 **Exception handling — centralized:**
 
@@ -650,9 +666,9 @@ delegates to the appropriate handler.
 @ControllerAdvice
 public class CatalogExceptionHandler {
     @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(ProductNotFoundException e) {
+    public ResponseEntity<Map<String, String>> handleNotFound(ProductNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-            .body(new ErrorResponse(e.getMessage()));
+            .body(Map.of("message", e.getMessage()));
     }
 }
 ```
@@ -673,62 +689,140 @@ public record AddToCatalogCommand(
 `@Valid` on the `@RequestBody` parameter triggers validation. Spring returns 400 with error
 details automatically.
 
-**Testing controllers with `MockMvc`:**
+**Testing strategy — acceptance tests over mock-based controller tests:**
+
+Your handlers are already unit-tested with in-memory fakes. A `@WebMvcTest` with a mocked
+`Mediator` just tests that Spring annotations work — low value. What you actually need to
+prove is that the **real stack** works end-to-end: HTTP → Spring wiring → mediator dispatch
+→ handler → database → response.
+
+Use `@SpringBootTest` with Testcontainers as the primary controller test:
 
 ```java
-@WebMvcTest(CatalogController.class)
-class CatalogControllerTest {
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
+@Testcontainers
+class CatalogAcceptanceTest {
+    @Container
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17");
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+
     @Autowired
-    private MockMvc mockMvc;
-
-    @MockitoBean
-    private AddToCatalogHandler addToCatalogHandler;
-
-    @MockitoBean
-    private LookupProductHandler lookupProductHandler;
-
-    @MockitoBean
-    private SearchCatalogHandler searchCatalogHandler;
+    private RestTestClient restClient;
 
     @Test
-    void returnsProductById() throws Exception {
-        when(lookupProductHandler.handle(any()))
-            .thenReturn(Optional.of(testProduct));
+    void createsAndRetrievesProduct() {
+        var command = new AddToCatalogCommand(...);
+        restClient.post().uri("/api/products").body(command)
+            .exchange()
+            .expectStatus().isCreated();
 
-        mockMvc.perform(get("/api/products/{id}", productId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Widget"));
+        restClient.get().uri("/api/products/{id}", command.productId().value())
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody(ProductResponse.class)
+            .value(product -> assertThat(product.name()).isEqualTo("Widget"));
     }
 }
 ```
 
-**Why Mockito here:** `@WebMvcTest` loads only the web layer. The handlers aren't in the
-context — you mock them because the test's concern is HTTP handling (routing, serialization,
-status codes), not business logic.
+This boots the full application with a real Postgres, hits real HTTP endpoints, and proves
+the whole chain works. Flyway runs the migrations, JPA maps the entities, the mediator
+dispatches — if any of that is broken, the test catches it.
 
-**Watch out:** `@WebMvcTest` is a *sliced* test — it only loads controllers, not the full
-context. This makes it fast but means you need to provide (or mock) any dependencies the
-controller needs.
+**When `@WebMvcTest` still earns its keep:** testing `@ControllerAdvice` exception mapping
+in isolation — that's HTTP-layer logic worth testing without a full context:
 
-### Exercise 6.4a — Product endpoints
+```java
+@WebMvcTest(CatalogController.class)
+class CatalogExceptionMappingTest {
+    @Autowired
+    private MockMvc mockMvc;
 
-1. **Add a `main` method** to `CatalogApplication`:
+    @MockitoBean
+    private Mediator mediator;
+
+    @Test
+    void mapsNotFoundExceptionTo404() throws Exception {
+        when(mediator.query(any())).thenThrow(new ProductNotFoundException(...));
+
+        mockMvc.perform(get("/api/products/{id}", unknownId))
+            .andExpect(status().isNotFound());
+    }
+}
+```
+
+### Exercise 6.4a — Build a Mediator
+
+Build a simple mediator that resolves and dispatches to the correct handler using Spring's
+DI. No library needed.
+
+1. **Define the contracts** in a `mediator/` package (or `shared/`):
+   - `Command<R>` — marker interface for write operations (return type `R`, typically
+     `Void`)
+   - `CommandHandler<C extends Command<R>, R>` — has a `R handle(C command)` method
+   - `Query<R>` — marker interface for read operations (return type `R`)
+   - `QueryHandler<Q extends Query<R>, R>` — has a `R handle(Q query)` method
+   - `Mediator` — has `<R> R command(Command<R> command)` and `<R> R query(Query<R> query)`
+
+2. **Make your existing handlers implement the appropriate interface:**
+   - `AddToCatalogHandler implements CommandHandler<AddToCatalogCommand, Void>`
+   - `SchedulePromotionHandler implements CommandHandler<SchedulePromotionCommand, Void>`
+   - `LookupProductHandler implements QueryHandler<LookupProductQuery, Optional<Product>>`
+   - `SearchCatalogHandler implements QueryHandler<SearchCatalogQuery, List<Product>>`
+   - etc.
+   - Your existing records implement `Command<R>` or `Query<R>` accordingly
+
+3. **Implement `SpringMediator`** — a `@Component` that:
+   - Gets all `CommandHandler<?, ?>` and `QueryHandler<?, ?>` beans injected as separate
+     `List`s
+   - In the constructor, builds two `Map<Class<?>, ...>` maps — one for commands, one for
+     queries
+   - `command()` and `query()` each look up the handler for the message's class and delegate
+
+4. **Test the mediator itself** — plain JUnit, no Spring context needed:
+   - Register a command handler, send a command, assert the handler was called
+   - Register a query handler, send a query, assert it returns the expected result
+   - Send an unknown command/query type, assert it throws
+
+**Hints:**
+- The tricky part: resolving which `Command`/`Query` type a handler handles. Each handler
+  implements `CommandHandler<SomeCommand, SomeResult>` (or `QueryHandler`). To extract
+  `SomeCommand` at runtime, walk the handler's `getClass().getGenericInterfaces()`, find
+  the one that's a `ParameterizedType` whose raw type is `CommandHandler` (or
+  `QueryHandler`), and grab `getActualTypeArguments()[0]`
+- The resolution logic is identical for both maps — extract a private helper method
+- For `Void` return types, `handle()` returns `null` — that's fine
+- The `@SuppressWarnings("unchecked")` cast in `command()`/`query()` is unavoidable —
+  Java erases generics at runtime. The type safety comes from the registration step
+
+### Exercise 6.4b — Product endpoints
+
+1. **Add a `main` method** to `ECommerceApplication` (if you haven't already):
    ```java
    public static void main(String[] args) {
-       SpringApplication.run(CatalogApplication.class, args);
+       SpringApplication.run(ECommerceApplication.class, args);
    }
    ```
 
-2. **Create `CatalogController`** in `api/` with these endpoints:
-   - `POST /api/products` — delegates to `AddToCatalogHandler` (returns 201)
-   - `GET /api/products/{id}` — delegates to `LookupProductHandler` (returns 200 or 404)
-   - `GET /api/products` — delegates to `SearchCatalogHandler` (returns 200)
-   - `GET /api/products?category={id}` — delegates to `SearchCatalogHandler` with filter
-   - `PUT /api/products/{id}/price` — delegates to `RepriceProductHandler` (returns 200
-     or 404)
-   - `DELETE /api/products/{id}` — delegates to `DiscontinueProductHandler` (returns 204
-     or 404)
-   - `POST /api/promotions` — delegates to `CreatePromotionHandler` (returns 201)
+2. **Create `CatalogController`** in `catalog/api/` — inject `Mediator`, not individual
+   handlers.
+   Endpoints:
+   - `POST /api/products` — `mediator.command(...)` (returns 201)
+   - `GET /api/products/{id}` — `mediator.query(new LookupProductQuery(...))` (200 or 404)
+   - `GET /api/products` — `mediator.query(new SearchCatalogQuery())` (returns 200)
+   - `GET /api/products?category={id}` — same query with filter
+   - `PUT /api/products/{id}/price` — `mediator.command(new RepriceProductCommand(...))`
+     (200 or 404)
+   - `DELETE /api/products/{id}` — `mediator.command(new DiscontinueProductCommand(...))`
+     (204 or 404)
+   - `POST /api/promotions` — `mediator.command(...)` (returns 201)
    - Note: `GET /api/products/{id}` now returns effective price (from `LookupProductHandler`
      which queries active promotions — wired in 6.3d)
 
@@ -738,19 +832,30 @@ controller needs.
 4. **Add validation annotations** to `AddToCatalogCommand`: `@NotBlank name`,
    `@NotNull @Positive price`.
 
-5. **Test with `MockMvc`** — happy paths (create, read, list, filter, update, delete) and
-   error paths (not found, invalid input).
+5. **Write acceptance tests** using `@SpringBootTest` + Testcontainers + `RestTestClient`:
+   - Create a product, retrieve it by ID, assert the response matches
+   - List products, filter by category
+   - Reprice a product, verify the updated price
+   - Delete a product, verify 404 on subsequent GET
+   - Invalid input returns 400
+
+6. **Test exception mapping separately** with `@WebMvcTest` — mock the `Mediator` to throw,
+   assert the correct HTTP status codes. This is the one place mocking the mediator is
+   worthwhile, because exception-to-status mapping is HTTP-layer logic.
 
 **Hints:**
 - Add `spring-boot-starter-validation` for Jakarta Bean Validation
-- `ResponseEntity.created(URI.create("/api/products/" + id)).body(product)` for 201
-  responses with Location header
+- `ResponseEntity.created(URI.create("/api/products/" + command.productId().value())).build()`
+  for 201 responses with Location header
 - For soft-delete, the `DeleteProductHandler` sets `active` to false
 - `@RequestParam(required = false) UUID category` for optional query params
-- `MockMvc` assertions: `status().isCreated()`, `jsonPath("$.id").exists()`,
-  `content().contentType(MediaType.APPLICATION_JSON)`
-- Verify `./gradlew :catalog:bootRun` starts the app and you can hit the endpoints with
-  `curl` or your browser
+- Acceptance tests use `RestTestClient` — fluent API with `.exchange().expectStatus().isCreated()`
+- Add `@AutoConfigureRestTestClient` to your test class to get it auto-configured
+- Verify `./gradlew bootRun` starts the app and you can hit the endpoints with `curl` or
+  your browser
+- The acceptance tests need Testcontainers + Postgres on the classpath — these are the same
+  dependencies you'll add in 6.5, so if you haven't done 6.5 yet, use in-memory fakes for
+  now and switch to Testcontainers once the persistence layer exists
 
 ---
 
@@ -783,7 +888,7 @@ during tests.
 @Testcontainers
 class ProductRepositoryTest {
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17");
 }
 ```
 
@@ -842,8 +947,8 @@ for both.
 
 1. **Add dependencies to the version catalog:**
    - `org.flywaydb:flyway-core`, `org.flywaydb:flyway-database-postgresql`
-   - `org.testcontainers:testcontainers`, `org.testcontainers:junit-jupiter`,
-     `org.testcontainers:postgresql`
+   - `org.testcontainers:testcontainers`, `org.testcontainers:testcontainers-junit-jupiter`,
+     `org.testcontainers:testcontainers-postgresql`
    - `org.postgresql:postgresql` (JDBC driver)
 
 2. **Write your first migration:**
@@ -867,7 +972,7 @@ for both.
 
 5. **Write `V4__create_promotion_table.sql`:**
    - `id UUID PRIMARY KEY`, `description VARCHAR(255) NOT NULL`,
-     `discount_percentage DECIMAL(5,2) NOT NULL`, `start_date DATE NOT NULL`,
+     `discount_percentage INTEGER NOT NULL`, `start_date DATE NOT NULL`,
      `end_date DATE NOT NULL`, `target_type VARCHAR(50) NOT NULL`,
      `target_data JSONB` (holds category ID or product ID set, null for `AllProducts`)
 
@@ -1069,9 +1174,8 @@ Span span = tracer.spanBuilder("AddToCatalogHandler.handle")
     .setAttribute("product.name", command.name())
     .startSpan();
 try (Scope scope = span.makeCurrent()) {
-    ProductId id = // ...
-    span.setAttribute("product.id", id.value().toString());
-    return id;
+    span.setAttribute("product.id", command.productId().value().toString());
+    // ... build and save
 } catch (Exception e) {
     span.recordException(e);
     span.setStatus(StatusCode.ERROR, e.getMessage());
@@ -1185,7 +1289,8 @@ You now have all the hexagonal pieces:
 |------|-----------|---------------|
 | Domain value objects | Plain JUnit, no Spring | `Money`, `DateRange`, `Promotion` work |
 | Command/query handlers | JUnit with fake adapters | Business logic works (your primary tests) |
-| Primary adapter | `@WebMvcTest` with mocked handlers | HTTP routing, serialization, status codes |
+| Acceptance (full stack) | `@SpringBootTest` + Testcontainers | HTTP → mediator → handler → DB end-to-end |
+| Exception mapping | `@WebMvcTest` with mocked mediator | Exception-to-HTTP-status mapping |
 | Secondary adapter | `@DataJpaTest` + Testcontainers | SQL, JPA mappings, query derivation |
 | Adapter contract | Same tests on fake + real | Fake is a faithful substitute |
 | End-to-end | `@SpringBootTest` + Testcontainers | Everything wires together |
@@ -1194,23 +1299,28 @@ You now have all the hexagonal pieces:
 
 ```java
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
 @Testcontainers
 class CatalogIntegrationTest {
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17");
 
     @Autowired
-    private TestRestTemplate restTemplate;
+    private RestTestClient restClient;
 
     @Test
     void createAndRetrieveProduct() {
-        var command = new AddToCatalogCommand("Widget", "A fine widget", new BigDecimal("19.99"));
-        var created = restTemplate.postForEntity("/api/products", command, ProductId.class);
-        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        var productId = ProductId.generate();
+        var command = new AddToCatalogCommand(productId, "Widget", "A fine widget", new BigDecimal("19.99"));
+        restClient.post().uri("/api/products").body(command)
+            .exchange()
+            .expectStatus().isCreated();
 
-        var retrieved = restTemplate.getForEntity(
-            "/api/products/" + created.getBody().value(), Product.class);
-        assertThat(retrieved.getBody().name()).isEqualTo("Widget");
+        restClient.get().uri("/api/products/{id}", productId.value())
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody(ProductResponse.class)
+            .value(product -> assertThat(product.name()).isEqualTo("Widget"));
     }
 }
 ```
@@ -1225,18 +1335,19 @@ the entire request path from HTTP through command handler to database and back.
    - List products, filter by category
    - Update a product, verify changes persist
    - Soft-delete, verify it no longer appears in listings
-   - Create a promotion, look up a product, verify effective price reflects the discount
+   - Schedule a promotion, look up a product, verify effective price reflects the discount
 
 2. **Verify the full test coverage:**
    - Domain: `Money`, `DateRange`, `Promotion` tests (no Spring)
    - Command/query handlers: tests with `InMemoryProductRepository` (no Spring)
-   - Primary adapter: `@WebMvcTest` with mocked handlers
+   - Acceptance: `@SpringBootTest` + Testcontainers (full stack end-to-end)
+   - Exception mapping: `@WebMvcTest` with mocked mediator
    - Secondary adapter: `@DataJpaTest` + Testcontainers
    - Contract: same tests on fake + real repository
    - Integration: `@SpringBootTest` + Testcontainers (end-to-end)
 
 **Hints:**
-- `TestRestTemplate` is auto-configured by `@SpringBootTest` with `RANDOM_PORT`
+- `RestTestClient` needs `@AutoConfigureRestTestClient` on the test class
 - Use `@DynamicPropertySource` to point Spring at the Testcontainer's PostgreSQL
 - Integration tests are slow — focus on proving the wiring, not re-testing business logic
 
@@ -1250,7 +1361,7 @@ Run through this checklist:
 
 1. **`./gradlew clean build`** — all modules compile, all tests pass
 2. **CRUD API works** — create, read, list, filter, update, soft-delete products
-3. **Promotions work** — create a promotion, look up a product with effective price,
+3. **Promotions work** — schedule a promotion, look up a product with effective price,
    sealed `PromotionTarget` drives filtering, `Money` used for prices
 4. **Hexagonal structure** — domain defines ports, adapters implement them, dependencies
    point inward
@@ -1276,12 +1387,12 @@ After completing Phase 6, your e-commerce project should have:
 
 - [ ] Spring Boot application in the `catalog` module with DI wired up
 - [ ] Hexagonal architecture with package-by-use-case organization
-- [ ] Command handlers (`AddToCatalogHandler`, `RepriceProductHandler`, `DiscontinueProductHandler`, `CreatePromotionHandler`)
+- [ ] Command handlers (`AddToCatalogHandler`, `RepriceProductHandler`, `DiscontinueProductHandler`, `SchedulePromotionHandler`)
 - [ ] Query handlers (`LookupProductHandler` with effective price, `SearchCatalogHandler`)
 - [ ] Vocabulary packages (`product/`, `category/`, `promotion/`) with ports (`ProductRepository`, `PromotionRepository`)
 - [ ] Sealed `PromotionTarget` (`AllProducts`, `ByCategory`, `ByProducts`) — data only, filtering in repository adapters
 - [ ] `Money` value object in `common` — `Product.price()` refactored from `BigDecimal` to `Money`
-- [ ] `DateRange` value object in `common` — `Promotion.isActive(Clock)` delegates to `DateRange.contains()`
+- [ ] `DateRange` value object in `common` — repository fakes use `DateRange.contains()` for active-promotion filtering
 - [ ] REST entry point: `CatalogController` in `api/` (including `POST /api/promotions`)
 - [ ] Product lookup returns effective price (original price with best active promotion applied)
 - [ ] Database implementation: `PostgresProductRepository`, `PostgresPromotionRepository` in `infrastructure/persistence/`
